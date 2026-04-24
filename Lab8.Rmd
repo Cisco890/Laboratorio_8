@@ -1,7 +1,10 @@
 ---
-title: " Laboratorio 8 "
+title: ' Laboratorio 8 '
 date: "`r Sys.Date()`"
 output:
+  pdf_document:
+    toc: true
+    toc_depth: '3'
   html_document:
     toc: true
     toc_depth: 3
@@ -581,3 +584,132 @@ saveRDS(modelo_svm_polinomial, "artefactos/modelo_svm_polinomial.rds")
 ```
 
 Los tres modelos quedan entrenados y serializados para su uso en etapas posteriores de comparación formal. La tabla de tiempos y exactitudes ofrece una primera lectura del equilibrio entre costo computacional y capacidad clasificatoria de cada configuración de kernel.
+
+## Evaluación de la clasificación en el conjunto de prueba
+
+Después de entrenar los modelos SVM, se evaluó su desempeño sobre el conjunto de prueba mediante matrices de confusión. Esta evaluación permite observar no solo la proporción global de aciertos, sino también el comportamiento específico del modelo en cada categoría de precio. Para SmartStay Advisors, esta distinción es importante porque no todos los errores tienen el mismo impacto operativo: confundir una propiedad cara como barata puede afectar la expectativa del cliente y la rentabilidad esperada, mientras que clasificar incorrectamente una propiedad barata como cara puede reducir su probabilidad de recomendación.
+
+```{r matrices-confusion}
+matriz_lineal     <- confusionMatrix(pred_lineal,     y_test)
+matriz_radial     <- confusionMatrix(pred_radial,     y_test)
+matriz_polinomial <- confusionMatrix(pred_polinomial, y_test)
+
+matriz_lineal
+matriz_radial
+matriz_polinomial
+```
+
+```{r metricas-globales}
+accuracy_lineal     <- matriz_lineal$overall["Accuracy"]
+accuracy_radial     <- matriz_radial$overall["Accuracy"]
+accuracy_polinomial <- matriz_polinomial$overall["Accuracy"]
+
+kappa_lineal     <- matriz_lineal$overall["Kappa"]
+kappa_radial     <- matriz_radial$overall["Kappa"]
+kappa_polinomial <- matriz_polinomial$overall["Kappa"]
+```
+
+## Análisis de errores por categoría de precio
+
+Las métricas globales de accuracy ocultan diferencias importantes entre categorías. Un modelo puede clasificar bien la mayoría de propiedades y aun así fallar sistemáticamente en una clase específica. Para SmartStay Advisors, conocer en qué categoría de precio se concentran los errores permite priorizar los ajustes del modelo antes de ponerlo en producción.
+
+```{r metricas-por-clase}
+metricas_lineal     <- as.data.frame(matriz_lineal$byClass)
+metricas_radial     <- as.data.frame(matriz_radial$byClass)
+metricas_polinomial <- as.data.frame(matriz_polinomial$byClass)
+
+cat("Métricas por clase — kernel lineal:\n")
+kable(metricas_lineal[, c("Sensitivity", "Specificity", "Pos Pred Value", "Balanced Accuracy")],
+      digits = 4, caption = "Desempeño por categoría de precio — SVM lineal")
+
+cat("Métricas por clase — kernel radial:\n")
+kable(metricas_radial[, c("Sensitivity", "Specificity", "Pos Pred Value", "Balanced Accuracy")],
+      digits = 4, caption = "Desempeño por categoría de precio — SVM radial")
+
+cat("Métricas por clase — kernel polinomial:\n")
+kable(metricas_polinomial[, c("Sensitivity", "Specificity", "Pos Pred Value", "Balanced Accuracy")],
+      digits = 4, caption = "Desempeño por categoría de precio — SVM polinomial")
+```
+
+```{r tabla-resumen-svm}
+tabla_metricas_svm <- tibble(
+  modelo   = c("SVM lineal", "SVM radial", "SVM polinomial"),
+  accuracy = c(accuracy_lineal, accuracy_radial, accuracy_polinomial),
+  kappa    = c(kappa_lineal,    kappa_radial,    kappa_polinomial)
+)
+
+tabla_resumen_svm <- tabla_metricas_svm %>%
+  left_join(tabla_tiempos, by = "modelo")
+
+kable(tabla_resumen_svm, digits = 4,
+      caption = "Resumen comparativo de modelos SVM: accuracy, kappa y tiempo de entrenamiento")
+```
+
+La tabla anterior permite comparar los tres kernels de forma simultánea. El modelo con mayor accuracy en prueba no necesariamente es el mejor: también importa su estabilidad entre clases, reflejada en el coeficiente Kappa, y el costo computacional asociado.
+
+## Diagnóstico de generalización de los modelos SVM
+
+El análisis de ajuste se realizó comparando el desempeño del modelo en entrenamiento contra su desempeño en prueba. Esta comparación permite identificar si el modelo aprendió patrones generales o si memorizó particularidades del conjunto de entrenamiento. Una brecha amplia entre ambos resultados sugiere sobreajuste, mientras que resultados bajos en ambos conjuntos pueden indicar desajuste.
+
+```{r predicciones-entrenamiento}
+pred_train_lineal     <- predict(modelo_svm_lineal,     newdata = x_train)
+pred_train_radial     <- predict(modelo_svm_radial,     newdata = x_train)
+pred_train_polinomial <- predict(modelo_svm_polinomial, newdata = x_train)
+```
+
+```{r matrices-confusion-entrenamiento}
+matriz_train_lineal     <- confusionMatrix(pred_train_lineal,     y_train)
+matriz_train_radial     <- confusionMatrix(pred_train_radial,     y_train)
+matriz_train_polinomial <- confusionMatrix(pred_train_polinomial, y_train)
+
+accuracy_train_lineal     <- matriz_train_lineal$overall["Accuracy"]
+accuracy_train_radial     <- matriz_train_radial$overall["Accuracy"]
+accuracy_train_polinomial <- matriz_train_polinomial$overall["Accuracy"]
+```
+
+```{r tabla-ajuste}
+tabla_ajuste_svm <- tibble(
+  modelo         = c("SVM lineal", "SVM radial", "SVM polinomial"),
+  accuracy_train = c(accuracy_train_lineal, accuracy_train_radial, accuracy_train_polinomial),
+  accuracy_test  = c(accuracy_lineal,       accuracy_radial,       accuracy_polinomial),
+  diferencia     = accuracy_train - accuracy_test
+) %>%
+  mutate(
+    diagnostico = case_when(
+      diferencia > 0.10                                      ~ "Posible sobreajuste",
+      accuracy_train < 0.60 & accuracy_test < 0.60          ~ "Posible desajuste",
+      TRUE                                                   ~ "Ajuste razonable"
+    )
+  )
+
+kable(tabla_ajuste_svm, digits = 4,
+      caption = "Comparación de accuracy entre entrenamiento y prueba para diagnóstico de ajuste")
+```
+
+## Implicaciones del ajuste para la toma de decisiones de SmartStay Advisors
+
+Con base en las métricas obtenidas, el mejor modelo SVM debe seleccionarse considerando simultáneamente su accuracy, sus métricas por clase, el tiempo de procesamiento y la estabilidad entre entrenamiento y prueba. Esta decisión es más sólida que elegir únicamente el modelo con mayor accuracy, ya que permite valorar la capacidad real del modelo para generalizar a nuevas propiedades.
+
+Cuando la diferencia entre accuracy de entrenamiento y de prueba es mayor al 10%, el modelo probablemente memorizó patrones particulares del conjunto de entrenamiento en lugar de aprender reglas generalizables. En ese caso, el modelo clasificará bien las propiedades que ya conoce, pero fallará ante inmuebles con características distintas a las observadas durante el entrenamiento.
+
+## Recomendaciones para mejorar el desempeño predictivo
+
+Las recomendaciones siguientes se derivan directamente del diagnóstico de ajuste obtenido. Su aplicación debe evaluarse en función del kernel específico que presente el mayor desequilibrio entre entrenamiento y prueba.
+
+**Si se detecta sobreajuste:**
+
+- Reducir el valor del parámetro `C` para penalizar menos las clasificaciones correctas en entrenamiento y permitir mayor margen de error.
+- Reducir `sigma` o `gamma` en el kernel radial para suavizar la frontera de decisión y evitar que se adapte demasiado a puntos individuales.
+- Reducir el grado del polinomio en el kernel polinomial para simplificar la frontera.
+- Ampliar la búsqueda de hiperparámetros mediante validación cruzada con mayor número de folds.
+- Revisar si existen variables predictoras con ruido alto que estén influyendo en el ajuste excesivo.
+- Considerar aumentar el tamaño de la muestra de entrenamiento si el volumen de datos lo permite.
+
+**Si se detecta desajuste:**
+
+- Probar kernels más flexibles, como el radial con mayor sigma o el polinomial con mayor grado.
+- Aumentar el valor de `C` para reducir el margen y permitir que el modelo sea más estricto con los errores de clasificación.
+- Ajustar `gamma` hacia valores mayores para que cada observación tenga mayor influencia local.
+- Incorporar variables predictoras adicionales que capturen mejor las diferencias entre categorías de precio.
+- Revisar si la variable respuesta está desbalanceada y, en ese caso, aplicar técnicas de remuestreo como SMOTE.
+- Verificar que las transformaciones de preprocesamiento no hayan eliminado información relevante junto con el ruido.
