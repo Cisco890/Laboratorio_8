@@ -1,0 +1,386 @@
+---
+title: " Laboratorio 8 "
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Preparación del entorno analítico
+
+```{r librerias}
+paquetes_requeridos <- c("tidyverse", "caret", "e1071", "kernlab", "knitr")
+paquetes_opcionales <- c("MLmetrics")
+
+for (pkg in paquetes_requeridos) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    stop(paste("Falta instalar el paquete requerido:", pkg))
+  }
+  suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+}
+
+for (pkg in paquetes_opcionales) {
+  if (requireNamespace(pkg, quietly = TRUE)) {
+    suppressPackageStartupMessages(library(pkg, character.only = TRUE))
+  } else {
+    message("Paquete opcional no disponible en este entorno: ", pkg)
+  }
+}
+
+set.seed(123)
+```
+
+Este documento prepara los datos para clasificación con SVM sobre la variable objetivo categórica de precio. Se prioriza reproducibilidad, limpieza del flujo y trazabilidad del particionamiento experimental.
+
+## Carga y diagnóstico inicial del conjunto de datos
+
+```{r carga-datos}
+objetos_cargados <- load("listings.RData")
+
+if ("listings" %in% objetos_cargados) {
+  datos <- get("listings")
+} else {
+  candidatos_df <- objetos_cargados[sapply(objetos_cargados, function(x) is.data.frame(get(x)))]
+  if (length(candidatos_df) == 0) {
+    stop("No se encontró ningún data frame en listings.RData")
+  }
+  datos <- get(candidatos_df[1])
+}
+
+datos <- as.data.frame(datos)
+```
+
+```{r diagnostico-general}
+cat("Objeto usado:", if ("listings" %in% objetos_cargados) "listings" else "primer data.frame encontrado", "\n")
+cat("Dimensiones:", nrow(datos), "filas x", ncol(datos), "columnas\n")
+
+resumen_tipos <- tibble(
+  variable = names(datos),
+  clase = sapply(datos, function(x) paste(class(x), collapse = ", ")),
+  n_unicos = sapply(datos, function(x) dplyr::n_distinct(x, na.rm = TRUE)),
+  na_count = sapply(datos, function(x) sum(is.na(x))),
+  na_pct = round(100 * na_count / nrow(datos), 2)
+)
+
+resumen_tipos %>%
+  count(clase, sort = TRUE) %>%
+  kable(caption = "Cantidad de variables por tipo")
+
+resumen_tipos %>%
+  arrange(desc(na_count)) %>%
+  slice_head(n = 20) %>%
+  kable(caption = "Top 20 variables con más valores faltantes")
+```
+
+```{r precio-limpieza}
+if ("price" %in% names(datos) && is.character(datos$price)) {
+  datos <- datos %>% mutate(price = readr::parse_number(price))
+}
+
+if (!"price" %in% names(datos)) {
+  stop("No existe la variable 'price' en el conjunto de datos.")
+}
+```
+
+En esta base, la variable `price` se encuentra como texto con símbolos monetarios y se convierte a formato numérico para poder construir la variable objetivo y evitar problemas en modelado.
+
+## Reutilización del particionamiento experimental
+
+```{r particion}
+detectar_particion_previa <- function(datos_base) {
+  resultado <- list(
+    encontrada = FALSE,
+    fuente = NA_character_,
+    train = NULL,
+    test = NULL,
+    train_index = NULL
+  )
+
+  # Caso 1: objetos train/test ya presentes en el ambiente.
+  if (exists("train", inherits = FALSE) && exists("test", inherits = FALSE)) {
+    tr <- get("train")
+    te <- get("test")
+    if (is.data.frame(tr) && is.data.frame(te)) {
+      resultado$encontrada <- TRUE
+      resultado$fuente <- "objetos train/test ya presentes en el ambiente"
+      resultado$train <- tr
+      resultado$test <- te
+      return(resultado)
+    }
+  }
+
+  # Caso 2: archivos comunes de partición.
+  candidatos <- list.files(
+    path = ".",
+    recursive = TRUE,
+    full.names = TRUE,
+    pattern = "(?i)(train|test|split|particion|partition).*(\\.rds|\\.rda|\\.RData)$"
+  )
+
+  if (length(candidatos) == 0) {
+    return(resultado)
+  }
+
+  for (archivo in candidatos) {
+    ext <- tolower(tools::file_ext(archivo))
+
+    if (ext == "rds") {
+      obj <- tryCatch(readRDS(archivo), error = function(e) NULL)
+      if (is.null(obj)) next
+
+      # Formato lista con train/test.
+      if (is.list(obj) && all(c("train", "test") %in% names(obj))) {
+        if (is.data.frame(obj$train) && is.data.frame(obj$test)) {
+          resultado$encontrada <- TRUE
+          resultado$fuente <- paste("archivo", archivo, "(lista train/test)")
+          resultado$train <- obj$train
+          resultado$test <- obj$test
+          return(resultado)
+        }
+      }
+
+      # Formato lista con índice.
+      if (is.list(obj) && "train_index" %in% names(obj)) {
+        idx <- obj$train_index
+        if (is.numeric(idx) && all(idx >= 1) && all(idx <= nrow(datos_base))) {
+          resultado$encontrada <- TRUE
+          resultado$fuente <- paste("archivo", archivo, "(índice train)")
+          resultado$train_index <- idx
+          resultado$train <- datos_base[idx, , drop = FALSE]
+          resultado$test <- datos_base[-idx, , drop = FALSE]
+          return(resultado)
+        }
+      }
+    }
+
+    if (ext %in% c("rda", "rdata")) {
+      env_tmp <- new.env(parent = emptyenv())
+      cargados <- tryCatch(load(archivo, envir = env_tmp), error = function(e) character(0))
+      if (length(cargados) == 0) next
+
+      if (all(c("train", "test") %in% ls(env_tmp))) {
+        tr <- get("train", envir = env_tmp)
+        te <- get("test", envir = env_tmp)
+        if (is.data.frame(tr) && is.data.frame(te)) {
+          resultado$encontrada <- TRUE
+          resultado$fuente <- paste("archivo", archivo, "(objetos train/test)")
+          resultado$train <- tr
+          resultado$test <- te
+          return(resultado)
+        }
+      }
+    }
+  }
+
+  resultado
+}
+
+if (!"price_category" %in% names(datos)) {
+  q1 <- quantile(datos$price, 1 / 3, na.rm = TRUE)
+  q2 <- quantile(datos$price, 2 / 3, na.rm = TRUE)
+
+  datos <- datos %>%
+    mutate(
+      price_category = case_when(
+        price <= q1 ~ "barata",
+        price <= q2 ~ "media",
+        TRUE ~ "cara"
+      ),
+      price_category = factor(price_category, levels = c("barata", "media", "cara"))
+    )
+} else {
+  datos <- datos %>%
+    mutate(price_category = as.factor(price_category))
+}
+
+particion_previa <- detectar_particion_previa(datos)
+
+if (isTRUE(particion_previa$encontrada)) {
+  train <- particion_previa$train
+  test <- particion_previa$test
+  fuente_particion <- particion_previa$fuente
+} else {
+  set.seed(123)
+  indice_train <- createDataPartition(datos$price_category, p = 0.8, list = FALSE)
+
+  train <- datos[indice_train, , drop = FALSE]
+  test <- datos[-indice_train, , drop = FALSE]
+
+  fuente_particion <- "reconstruida con set.seed(123) y createDataPartition()"
+
+  dir.create("artefactos", showWarnings = FALSE)
+  saveRDS(list(train_index = indice_train), file = "artefactos/particion_train_idx.rds")
+}
+
+cat("Fuente de particionamiento:", fuente_particion, "\n")
+```
+
+```{r verificacion-particion}
+cat("Dimensiones train:", paste(dim(train), collapse = " x "), "\n")
+cat("Dimensiones test :", paste(dim(test), collapse = " x "), "\n")
+
+prop_train <- prop.table(table(train$price_category))
+prop_test <- prop.table(table(test$price_category))
+
+tabla_props <- bind_rows(
+  tibble(conjunto = "train", categoria = names(prop_train), proporcion = as.numeric(prop_train)),
+  tibble(conjunto = "test", categoria = names(prop_test), proporcion = as.numeric(prop_test))
+)
+
+tabla_props %>%
+  pivot_wider(names_from = conjunto, values_from = proporcion) %>%
+  mutate(diferencia_abs = abs(train - test)) %>%
+  kable(digits = 4, caption = "Comparación de proporciones por categoría de precio")
+```
+
+Las proporciones por categoría entre entrenamiento y prueba se mantienen comparables, lo cual permite contrastar modelos futuros bajo condiciones experimentales consistentes.
+
+## Diagnóstico inicial de predictores
+
+```{r exploracion}
+glimpse(train)
+
+resumen_numericas <- train %>%
+  summarise(across(where(is.numeric), list(
+    media = ~ mean(.x, na.rm = TRUE),
+    sd = ~ sd(.x, na.rm = TRUE),
+    min = ~ min(.x, na.rm = TRUE),
+    max = ~ max(.x, na.rm = TRUE)
+  )))
+
+resumen_na <- train %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "na_count") %>%
+  mutate(na_pct = 100 * na_count / nrow(train)) %>%
+  arrange(desc(na_count))
+
+perfil_categoricas <- train %>%
+  select(where(~ is.character(.x) || is.factor(.x))) %>%
+  summarise(across(everything(), ~ n_distinct(.x, na.rm = TRUE))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "n_categorias") %>%
+  arrange(desc(n_categorias))
+
+resumen_na %>%
+  slice_head(n = 20) %>%
+  kable(caption = "Variables con mayor cantidad de NA en entrenamiento")
+
+perfil_categoricas %>%
+  slice_head(n = 20) %>%
+  kable(caption = "Variables categóricas con mayor cardinalidad")
+```
+
+```{r grafico-categoria}
+ggplot(train, aes(x = price_category)) +
+  geom_bar(fill = "#2E86AB") +
+  labs(
+    title = "Distribución de la categoría de precio en entrenamiento",
+    x = "Categoría de precio",
+    y = "Cantidad de propiedades"
+  ) +
+  theme_minimal()
+```
+
+```{r grafico-precio}
+ggplot(train, aes(x = price)) +
+  geom_histogram(bins = 50, fill = "#F18F01", alpha = 0.8) +
+  labs(
+    title = "Distribución de precio (variable base para categorización)",
+    x = "Precio",
+    y = "Frecuencia"
+  ) +
+  theme_minimal()
+```
+
+La exploración inicial permite identificar tres focos para SVM: valores faltantes, columnas textuales o identificadoras de alta cardinalidad y necesidad de escalamiento de predictores numéricos.
+
+## Transformaciones para modelado SVM
+
+```{r transformaciones}
+# Limpieza mínima de la variable objetivo.
+train <- train %>% mutate(price_category = factor(price_category, levels = c("barata", "media", "cara")))
+test <- test %>% mutate(price_category = factor(price_category, levels = levels(train$price_category)))
+
+# Exclusión de columnas que introducen fuga de información o ruido para SVM.
+patrones_id <- "(^id$|_id$|url|name$|description|about|picture|thumbnail|host_url|listing_url|scrape_id|calendar_last_scraped)"
+cols_patron <- names(train)[str_detect(names(train), regex(patrones_id, ignore_case = TRUE))]
+
+cols_all_na <- names(train)[sapply(train, function(x) all(is.na(x)))]
+
+# Variables categóricas de cardinalidad extrema.
+cat_cols <- names(train)[sapply(train, function(x) is.character(x) || is.factor(x))]
+alta_card <- cat_cols[sapply(train[cat_cols], function(x) n_distinct(x, na.rm = TRUE) > 100)]
+
+columnas_excluir <- unique(c("price", cols_patron, cols_all_na, alta_card))
+columnas_excluir <- setdiff(columnas_excluir, "price_category")
+
+train_model <- train %>% select(-any_of(columnas_excluir))
+test_model <- test %>% select(-any_of(columnas_excluir))
+
+# Separación de X e y.
+y_train <- train_model$price_category
+y_test <- test_model$price_category
+
+x_train_base <- train_model %>% select(-price_category)
+x_test_base <- test_model %>% select(-price_category)
+
+# Conversión de categóricas a dummies.
+dummy_model <- dummyVars(~ ., data = x_train_base, fullRank = TRUE)
+x_train <- predict(dummy_model, newdata = x_train_base) %>% as.data.frame()
+x_test <- predict(dummy_model, newdata = x_test_base) %>% as.data.frame()
+
+# Alineación estricta de columnas entre train y test.
+cols_faltantes_test <- setdiff(names(x_train), names(x_test))
+if (length(cols_faltantes_test) > 0) {
+  for (col in cols_faltantes_test) x_test[[col]] <- 0
+}
+
+cols_extra_test <- setdiff(names(x_test), names(x_train))
+if (length(cols_extra_test) > 0) {
+  x_test <- x_test %>% select(-any_of(cols_extra_test))
+}
+
+x_test <- x_test[, names(x_train), drop = FALSE]
+
+# Imputación y escalamiento para SVM.
+preprocess_model <- preProcess(x_train, method = c("medianImpute", "center", "scale"))
+x_train_scaled <- predict(preprocess_model, x_train)
+x_test_scaled <- predict(preprocess_model, x_test)
+
+# Reconstrucción final para entrenamiento y evaluación.
+train_svm <- x_train_scaled %>% mutate(price_category = y_train)
+test_svm <- x_test_scaled %>% mutate(price_category = y_test)
+
+train_svm$price_category <- factor(train_svm$price_category, levels = c("barata", "media", "cara"))
+test_svm$price_category <- factor(test_svm$price_category, levels = levels(train_svm$price_category))
+```
+
+```{r validacion-final}
+cat("Dimensiones train_svm:", paste(dim(train_svm), collapse = " x "), "\n")
+cat("Dimensiones test_svm :", paste(dim(test_svm), collapse = " x "), "\n")
+
+table(train_svm$price_category)
+table(test_svm$price_category)
+
+cat("¿Hay NA en train_svm?:", anyNA(train_svm), "\n")
+cat("¿Hay NA en test_svm?:", anyNA(test_svm), "\n")
+```
+
+```{r guardado-artefactos}
+dir.create("artefactos", showWarnings = FALSE)
+
+saveRDS(train_svm, "artefactos/train_svm.rds")
+saveRDS(test_svm, "artefactos/test_svm.rds")
+saveRDS(dummy_model, "artefactos/dummy_model_svm.rds")
+saveRDS(preprocess_model, "artefactos/preprocess_model_svm.rds")
+```
+
+## Cierre del avance
+
+Con este avance se deja lista una base de entrenamiento y una base de prueba compatibles con SVM de clasificación, manteniendo el particionamiento previo cuando está disponible y reconstruyéndolo de forma reproducible cuando no existe artefacto previo en el proyecto.
+
+La variable objetivo `price_category` queda validada como factor ordinal de tres niveles (`barata`, `media`, `cara`) y los predictores quedan transformados mediante codificación dummy, imputación e estandarización, condiciones necesarias para entrenar modelos SVM comparables en las siguientes etapas.
