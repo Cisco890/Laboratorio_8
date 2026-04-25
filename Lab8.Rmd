@@ -448,20 +448,26 @@ Se utilizó validación cruzada de 5 folds en lugar de 10 para reducir el tiempo
 
 ### Kernel lineal
 
-```{r modelo-lineal}
+```{r modelo-lineal, cache=TRUE}
 grid_lineal <- expand.grid(C = c(0.1, 1, 10))
 
-set.seed(123)
-tiempo_lineal <- system.time({
-  modelo_svm_lineal <- train(
-    x         = x_train,
-    y         = y_train,
-    method    = "svmLinear",
-    trControl = control_svm,
-    tuneGrid  = grid_lineal,
-    metric    = "Accuracy"
-  )
-})
+if (file.exists("artefactos/modelo_svm_lineal.rds")) {
+  modelo_svm_lineal <- readRDS("artefactos/modelo_svm_lineal.rds")
+  tiempo_lineal <- c(elapsed = NA_real_)
+} else {
+  set.seed(123)
+  tiempo_lineal <- system.time({
+    modelo_svm_lineal <- train(
+      x         = x_train,
+      y         = y_train,
+      method    = "svmLinear",
+      trControl = control_svm,
+      tuneGrid  = grid_lineal,
+      metric    = "Accuracy"
+    )
+  })
+  saveRDS(modelo_svm_lineal, "artefactos/modelo_svm_lineal.rds")
+}
 
 modelo_svm_lineal
 plot(modelo_svm_lineal, main = "Accuracy vs. C — kernel lineal")
@@ -471,23 +477,29 @@ El modelo lineal es la referencia más simple: genera un hiperplano que separa l
 
 ### Kernel radial
 
-```{r modelo-radial}
+```{r modelo-radial, cache=TRUE}
 grid_radial <- expand.grid(
   C     = c(0.1, 1, 10),
   sigma = c(0.01, 0.05, 0.1)
 )
 
-set.seed(123)
-tiempo_radial <- system.time({
-  modelo_svm_radial <- train(
-    x         = x_train,
-    y         = y_train,
-    method    = "svmRadial",
-    trControl = control_svm,
-    tuneGrid  = grid_radial,
-    metric    = "Accuracy"
-  )
-})
+if (file.exists("artefactos/modelo_svm_radial.rds")) {
+  modelo_svm_radial <- readRDS("artefactos/modelo_svm_radial.rds")
+  tiempo_radial <- c(elapsed = NA_real_)
+} else {
+  set.seed(123)
+  tiempo_radial <- system.time({
+    modelo_svm_radial <- train(
+      x         = x_train,
+      y         = y_train,
+      method    = "svmRadial",
+      trControl = control_svm,
+      tuneGrid  = grid_radial,
+      metric    = "Accuracy"
+    )
+  })
+  saveRDS(modelo_svm_radial, "artefactos/modelo_svm_radial.rds")
+}
 
 modelo_svm_radial
 plot(modelo_svm_radial, main = "Accuracy vs. C y sigma — kernel radial")
@@ -497,24 +509,30 @@ El kernel radial (RBF) transforma el espacio de características mediante una fu
 
 ### Kernel polinomial
 
-```{r modelo-polinomial}
+```{r modelo-polinomial, cache=TRUE}
 grid_polinomial <- expand.grid(
   degree = c(2, 3),
   scale  = c(0.01, 0.05, 0.1),
   C      = c(0.1, 1, 10)
 )
 
-set.seed(123)
-tiempo_polinomial <- system.time({
-  modelo_svm_polinomial <- train(
-    x         = x_train,
-    y         = y_train,
-    method    = "svmPoly",
-    trControl = control_svm,
-    tuneGrid  = grid_polinomial,
-    metric    = "Accuracy"
-  )
-})
+if (file.exists("artefactos/modelo_svm_polinomial.rds")) {
+  modelo_svm_polinomial <- readRDS("artefactos/modelo_svm_polinomial.rds")
+  tiempo_polinomial <- c(elapsed = NA_real_)
+} else {
+  set.seed(123)
+  tiempo_polinomial <- system.time({
+    modelo_svm_polinomial <- train(
+      x         = x_train,
+      y         = y_train,
+      method    = "svmPoly",
+      trControl = control_svm,
+      tuneGrid  = grid_polinomial,
+      metric    = "Accuracy"
+    )
+  })
+  saveRDS(modelo_svm_polinomial, "artefactos/modelo_svm_polinomial.rds")
+}
 
 modelo_svm_polinomial
 plot(modelo_svm_polinomial, main = "Accuracy vs. hiperparámetros — kernel polinomial")
@@ -578,9 +596,11 @@ kable(tabla_acc_prueba, digits = 4,
 ```
 
 ```{r guardado-modelos}
-saveRDS(modelo_svm_lineal,     "artefactos/modelo_svm_lineal.rds")
-saveRDS(modelo_svm_radial,     "artefactos/modelo_svm_radial.rds")
-saveRDS(modelo_svm_polinomial, "artefactos/modelo_svm_polinomial.rds")
+# Los modelos ya se guardan dentro de cada chunk de entrenamiento si no existían.
+# Este bloque solo confirma que los artefactos están presentes.
+cat("modelo_svm_lineal.rds:    ", file.exists("artefactos/modelo_svm_lineal.rds"), "\n")
+cat("modelo_svm_radial.rds:    ", file.exists("artefactos/modelo_svm_radial.rds"), "\n")
+cat("modelo_svm_polinomial.rds:", file.exists("artefactos/modelo_svm_polinomial.rds"), "\n")
 ```
 
 Los tres modelos quedan entrenados y serializados para su uso en etapas posteriores de comparación formal. La tabla de tiempos y exactitudes ofrece una primera lectura del equilibrio entre costo computacional y capacidad clasificatoria de cada configuración de kernel.
