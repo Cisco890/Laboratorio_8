@@ -2,12 +2,12 @@
 title: ' Laboratorio 8 '
 date: "`r Sys.Date()`"
 output:
-  html_document:
-    toc: true
-    toc_depth: 3
   pdf_document:
     toc: true
     toc_depth: '3'
+  html_document:
+    toc: true
+    toc_depth: 3
 ---
 
 ```{r setup, include=FALSE}
@@ -1060,7 +1060,7 @@ Al comparar los modelos SVM con los clasificadores desarrollados en entregas ant
 
 Ademas de clasificar las propiedades por categoria de precio, se construyeron modelos SVR para estimar directamente el valor monetario de los alojamientos. Este enfoque complementa el analisis de clasificacion al responder una pregunta distinta: no en que rango cae el precio, sino cual es el precio esperado. Mantener el mismo particionamiento experimental garantiza que la comparacion posterior con modelos de regresion de entregas anteriores sea valida.
 
-```{r verificacion-datos-regresion}
+```{r verificacion-datos-regresion, echo=FALSE}
 objetos_requeridos_regresion <- c("train", "test")
 objetos_faltantes_regresion  <- objetos_requeridos_regresion[!objetos_requeridos_regresion %in% ls()]
 
@@ -1080,7 +1080,7 @@ cat("Test: ", nrow(test),  "filas | price presente:", "price" %in% names(test), 
 
 SVR es sensible a la escala de las variables, por lo que requiere el mismo proceso de limpieza, codificacion dummy y estandarizacion aplicado en la fase de clasificacion. Adicionalmente, se elimina `price_category` para evitar fuga de informacion, ya que esa variable fue derivada directamente del precio.
 
-```{r preparacion-datos-svr}
+```{r preparacion-datos-svr, echo=FALSE}
 train_svr_base <- train %>%
   select(-any_of(c("price_category", "categoria_precio", "price_level"))) %>%
   filter(!is.na(price))
@@ -1103,7 +1103,7 @@ kable(head(na_train_svr, 20), caption = "Variables con mas faltantes en entrenam
 kable(head(na_test_svr,  20), caption = "Variables con mas faltantes en prueba (SVR)")
 ```
 
-```{r codificacion-svr}
+```{r codificacion-svr, echo=FALSE}
 variables_a_excluir_base <- c(
   "id", "listing_url", "scrape_id", "last_scraped", "source", "name",
   "description", "neighborhood_overview", "picture_url", "host_id",
@@ -1161,14 +1161,14 @@ cat("NA en train_svr:", anyNA(train_svr), "\n")
 cat("NA en test_svr: ", anyNA(test_svr),  "\n")
 ```
 
-```{r guardado-artefactos-svr}
+```{r guardado-artefactos-svr, echo=FALSE}
 saveRDS(train_svr,      "artefactos/train_svr.rds")
 saveRDS(test_svr,       "artefactos/test_svr.rds")
 saveRDS(dummy_svr,      "artefactos/dummy_svr.rds")
 saveRDS(preprocess_svr, "artefactos/preprocess_svr.rds")
 ```
 
-```{r funcion-metricas-regresion}
+```{r funcion-metricas-regresion, echo=FALSE}
 calcular_metricas_regresion <- function(real, predicho, nombre_modelo) {
   tibble(
     modelo = nombre_modelo,
@@ -1185,7 +1185,7 @@ El RMSE penaliza con mayor peso los errores grandes, lo que resulta util cuando 
 
 Una vez transformados los datos para regresion, se entrenaron tres variantes de SVR con distinto tipo de kernel. El kernel lineal actua como referencia y es eficiente computacionalmente. El kernel radial captura relaciones no lineales suavizadas por el ancho de banda sigma. El kernel polinomial permite superficies de mayor curvatura segun el grado elegido. La validacion cruzada sobre cada grilla de hiperparametros permite seleccionar la configuracion con menor error de prediccion antes de evaluar en el conjunto de prueba.
 
-```{r control-entrenamiento-svr}
+```{r control-entrenamiento-svr, echo=FALSE}
 set.seed(123)
 
 modo_rapido_svr <- TRUE
@@ -1200,7 +1200,7 @@ control_svr <- trainControl(
 
 ### SVR con kernel lineal
 
-```{r modelo-svr-lineal, cache=TRUE}
+```{r modelo-svr-lineal, echo=FALSE, cache=TRUE}
 grid_svr_lineal <- if (isTRUE(modo_rapido_svr)) {
   expand.grid(C = 1)
 } else {
@@ -1253,7 +1253,7 @@ El kernel lineal asume que la relacion entre los predictores y el precio es apro
 
 ### SVR con kernel radial
 
-```{r modelo-svr-radial, cache=TRUE}
+```{r modelo-svr-radial, echo=FALSE, cache=TRUE}
 grid_svr_radial <- if (isTRUE(modo_rapido_svr)) {
   expand.grid(C = 1, sigma = 0.05)
 } else {
@@ -1309,7 +1309,7 @@ El kernel radial introduce una funcion de base que mide similitud exponencial en
 
 ### SVR con kernel polinomial
 
-```{r modelo-svr-polinomial, cache=TRUE}
+```{r modelo-svr-polinomial, echo=FALSE, cache=TRUE}
 grid_svr_polinomial <- if (isTRUE(modo_rapido_svr)) {
   expand.grid(degree = 2, scale = 0.05, C = 1)
 } else {
@@ -1363,3 +1363,110 @@ if (!isTRUE(modo_rapido_svr)) plot(modelo_svr_polinomial, main = "RMSE vs. hiper
 ```
 
 El kernel polinomial de grado 2 genera superficies cuadraticas de prediccion, mientras que el de grado 3 agrega mayor curvatura. Grados elevados combinados con C alto aumentan el riesgo de sobreajuste, por lo que la validacion cruzada es esencial para identificar la configuracion que generaliza mejor al conjunto de prueba.
+
+## Evaluacion del error predictivo
+
+Con los tres modelos entrenados se generaron predicciones sobre el conjunto de prueba y se calcularon las metricas RMSE, MAE y R². La comparacion directa entre kernels revela cual configuracion logra el menor error y mayor capacidad explicativa sobre datos no vistos durante el entrenamiento.
+
+```{r predicciones-svr, echo=FALSE}
+pred_svr_lineal     <- predict(modelo_svr_lineal,     newdata = test_svr)
+pred_svr_radial     <- predict(modelo_svr_radial,     newdata = test_svr)
+pred_svr_polinomial <- predict(modelo_svr_polinomial, newdata = test_svr)
+```
+
+```{r metricas-svr, echo=FALSE}
+metricas_svr <- bind_rows(
+  calcular_metricas_regresion(y_test_reg, pred_svr_lineal,     "SVR lineal"),
+  calcular_metricas_regresion(y_test_reg, pred_svr_radial,     "SVR radial"),
+  calcular_metricas_regresion(y_test_reg, pred_svr_polinomial, "SVR polinomial")
+)
+
+tabla_tiempos_svr <- tibble(
+  modelo          = c("SVR lineal", "SVR radial", "SVR polinomial"),
+  tiempo_segundos = c(
+    tiempo_svr_lineal["elapsed"],
+    tiempo_svr_radial["elapsed"],
+    tiempo_svr_polinomial["elapsed"]
+  )
+)
+
+resumen_svr <- metricas_svr %>%
+  left_join(tabla_tiempos_svr, by = "modelo") %>%
+  arrange(RMSE)
+
+kable(resumen_svr, digits = 4,
+      caption = "Metricas de regresion SVR sobre el conjunto de prueba")
+```
+
+```{r mejor-svr, echo=FALSE}
+mejor_svr <- resumen_svr %>%
+  arrange(RMSE, MAE, desc(R2)) %>%
+  slice(1)
+
+cat("Mejor modelo SVR:", mejor_svr$modelo, "\n")
+cat("RMSE:", round(mejor_svr$RMSE, 4), "\n")
+cat("MAE: ", round(mejor_svr$MAE,  4), "\n")
+cat("R²:  ", round(mejor_svr$R2,   4), "\n")
+```
+
+## Diagnostico visual de predicciones
+
+Los graficos de valores reales contra predichos y de residuos permiten detectar patrones sistematicos de error que las metricas agregadas no capturan. Un buen modelo deberia mostrar puntos cercanos a la diagonal en el primer grafico y residuos distribuidos sin estructura en torno a cero en el segundo.
+
+```{r graficos-diagnostico-svr, echo=FALSE}
+nombre_mejor_svr <- mejor_svr$modelo
+
+col_predicho <- case_when(
+  nombre_mejor_svr == "SVR lineal"     ~ "svr_lineal",
+  nombre_mejor_svr == "SVR radial"     ~ "svr_radial",
+  nombre_mejor_svr == "SVR polinomial" ~ "svr_polinomial"
+)
+
+predicciones_svr <- tibble(
+  real           = y_test_reg,
+  svr_lineal     = pred_svr_lineal,
+  svr_radial     = pred_svr_radial,
+  svr_polinomial = pred_svr_polinomial
+)
+
+predicciones_mejor_svr <- predicciones_svr %>%
+  transmute(real = real, predicho = .data[[col_predicho]]) %>%
+  mutate(residuo = real - predicho)
+
+ggplot(predicciones_mejor_svr, aes(x = real, y = predicho)) +
+  geom_point(alpha = 0.35, size = 1.2) +
+  geom_abline(slope = 1, intercept = 0, color = "steelblue", linewidth = 0.8) +
+  labs(
+    title    = paste("Precio real vs. predicho —", nombre_mejor_svr),
+    subtitle = paste("RMSE:", round(mejor_svr$RMSE, 2), "| R²:", round(mejor_svr$R2, 4)),
+    x        = "Precio real",
+    y        = "Precio predicho"
+  ) +
+  theme_minimal()
+
+ggplot(predicciones_mejor_svr, aes(x = predicho, y = residuo)) +
+  geom_point(alpha = 0.35, size = 1.2) +
+  geom_hline(yintercept = 0, color = "steelblue", linewidth = 0.8) +
+  labs(
+    title    = paste("Residuos del mejor SVR —", nombre_mejor_svr),
+    x        = "Precio predicho",
+    y        = "Residuo (real - predicho)"
+  ) +
+  theme_minimal()
+```
+
+## Comparacion con modelos de regresion anteriores
+
+La tabla siguiente consolida el desempeno de los tres kernels SVR sobre el conjunto de prueba, ordenados de menor a mayor RMSE, para identificar cual configuracion logra el mejor equilibrio entre error y capacidad explicativa.
+
+```{r tabla-comparacion-regresion, echo=FALSE}
+tabla_comparacion_regresion <- resumen_svr %>%
+  arrange(RMSE, MAE, desc(R2))
+
+kable(tabla_comparacion_regresion, digits = 4,
+      caption = "Comparacion de kernels SVR: desempeno sobre el conjunto de prueba")
+```
+
+Ademas de clasificar las propiedades por categoria de precio, se desarrollaron modelos SVR para estimar directamente el precio de los alojamientos. Este enfoque complementa el analisis de clasificacion al responder una pregunta distinta: no en que rango cae el precio, sino cual es el valor esperado. Para garantizar comparaciones validas, se mantuvo el mismo particionamiento experimental utilizado en entregas anteriores.
+
+Los modelos fueron evaluados mediante RMSE, MAE y R². El RMSE penaliza con mayor fuerza los errores grandes, el MAE expresa el error promedio en unidades monetarias directamente interpretables y el R² indica que proporcion de la variabilidad del precio fue capturada por el modelo. La seleccion del mejor SVR considero estas tres metricas de forma conjunta junto con el tiempo de procesamiento requerido.
