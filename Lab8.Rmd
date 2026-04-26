@@ -1055,3 +1055,128 @@ Despues de evaluar individualmente los modelos SVM, se consolidaron sus resultad
 El analisis de las matrices de confusion permitio identificar los patrones de error mas frecuentes. En este contexto, no todos los errores tienen la misma relevancia: confundir una propiedad media con una barata puede tener un efecto moderado, mientras que clasificar una propiedad cara como barata puede generar expectativas incorrectas en el cliente y afectar la rentabilidad esperada.
 
 Al comparar los modelos SVM con los clasificadores desarrollados en entregas anteriores, se mantuvo el mismo conjunto de entrenamiento y prueba para asegurar una evaluacion justa. Bajo estas condiciones, el mejor modelo se selecciona con base en metricas complementarias como `accuracy`, `Kappa`, `balanced accuracy`, tiempo de procesamiento y estabilidad entre entrenamiento y prueba.
+
+## Preparacion del problema de prediccion de precios
+
+Ademas de clasificar las propiedades por categoria de precio, se construyeron modelos SVR para estimar directamente el valor monetario de los alojamientos. Este enfoque complementa el analisis de clasificacion al responder una pregunta distinta: no en que rango cae el precio, sino cual es el precio esperado. Mantener el mismo particionamiento experimental garantiza que la comparacion posterior con modelos de regresion de entregas anteriores sea valida.
+
+```{r verificacion-datos-regresion}
+objetos_requeridos_regresion <- c("train", "test")
+objetos_faltantes_regresion  <- objetos_requeridos_regresion[!objetos_requeridos_regresion %in% ls()]
+
+if (length(objetos_faltantes_regresion) > 0) {
+  stop(paste("Faltan objetos para regresion SVR:", paste(objetos_faltantes_regresion, collapse = ", ")))
+}
+
+if (!"price" %in% names(train) | !"price" %in% names(test)) {
+  stop("La variable price debe existir en train y test para entrenar SVR.")
+}
+
+cat("Train:", nrow(train), "filas | price presente:", "price" %in% names(train), "\n")
+cat("Test: ", nrow(test),  "filas | price presente:", "price" %in% names(test),  "\n")
+```
+
+## Transformacion de predictores para SVR
+
+SVR es sensible a la escala de las variables, por lo que requiere el mismo proceso de limpieza, codificacion dummy y estandarizacion aplicado en la fase de clasificacion. Adicionalmente, se elimina `price_category` para evitar fuga de informacion, ya que esa variable fue derivada directamente del precio.
+
+```{r preparacion-datos-svr}
+train_svr_base <- train %>%
+  select(-any_of(c("price_category", "categoria_precio", "price_level"))) %>%
+  filter(!is.na(price))
+
+test_svr_base <- test %>%
+  select(-any_of(c("price_category", "categoria_precio", "price_level"))) %>%
+  filter(!is.na(price))
+
+na_train_svr <- train_svr_base %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "faltantes") %>%
+  arrange(desc(faltantes))
+
+na_test_svr <- test_svr_base %>%
+  summarise(across(everything(), ~ sum(is.na(.x)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "faltantes") %>%
+  arrange(desc(faltantes))
+
+kable(head(na_train_svr, 20), caption = "Variables con mas faltantes en entrenamiento (SVR)")
+kable(head(na_test_svr,  20), caption = "Variables con mas faltantes en prueba (SVR)")
+```
+
+```{r codificacion-svr}
+variables_a_excluir_base <- c(
+  "id", "listing_url", "scrape_id", "last_scraped", "source", "name",
+  "description", "neighborhood_overview", "picture_url", "host_id",
+  "host_url", "host_name", "host_about", "calendar_last_scraped",
+  "first_review", "last_review"
+)
+
+cat_cols_svr  <- names(train_svr_base)[sapply(train_svr_base, function(x) is.character(x) || is.factor(x))]
+alta_card_svr <- cat_cols_svr[sapply(train_svr_base[cat_cols_svr], function(x) n_distinct(x, na.rm = TRUE) > 100)]
+
+variables_a_excluir_svr <- unique(c(variables_a_excluir_base, alta_card_svr))
+
+train_svr_limpio <- train_svr_base %>% select(-any_of(variables_a_excluir_svr))
+test_svr_limpio  <- test_svr_base  %>% select(-any_of(variables_a_excluir_svr))
+
+columnas_comunes <- intersect(names(train_svr_limpio), names(test_svr_limpio))
+train_svr_limpio <- train_svr_limpio %>% select(all_of(columnas_comunes))
+test_svr_limpio  <- test_svr_limpio  %>% select(all_of(columnas_comunes))
+
+y_train_reg <- train_svr_limpio$price
+y_test_reg  <- test_svr_limpio$price
+
+x_train_reg_raw <- train_svr_limpio %>% select(-price)
+x_test_reg_raw  <- test_svr_limpio  %>% select(-price)
+
+dummy_svr <- dummyVars(~ ., data = x_train_reg_raw)
+
+x_train_reg <- predict(dummy_svr, newdata = x_train_reg_raw) %>% as.data.frame()
+x_test_reg  <- predict(dummy_svr, newdata = x_test_reg_raw)  %>% as.data.frame()
+
+cols_faltantes_test_svr <- setdiff(names(x_train_reg), names(x_test_reg))
+if (length(cols_faltantes_test_svr) > 0) {
+  for (col in cols_faltantes_test_svr) x_test_reg[[col]] <- 0
+}
+cols_extra_test_svr <- setdiff(names(x_test_reg), names(x_train_reg))
+if (length(cols_extra_test_svr) > 0) {
+  x_test_reg <- x_test_reg %>% select(-any_of(cols_extra_test_svr))
+}
+x_test_reg <- x_test_reg[, names(x_train_reg), drop = FALSE]
+
+x_train_reg[!is.finite(as.matrix(x_train_reg))] <- NA
+x_test_reg[!is.finite(as.matrix(x_test_reg))]   <- NA
+
+preprocess_svr <- preProcess(x_train_reg, method = c("medianImpute", "center", "scale"))
+
+x_train_reg_scaled <- predict(preprocess_svr, x_train_reg)
+x_test_reg_scaled  <- predict(preprocess_svr, x_test_reg)
+
+train_svr <- x_train_reg_scaled %>% mutate(price = y_train_reg)
+test_svr  <- x_test_reg_scaled  %>% mutate(price = y_test_reg)
+
+cat("Dimensiones train_svr:", paste(dim(train_svr), collapse = " x "), "\n")
+cat("Dimensiones test_svr: ", paste(dim(test_svr),  collapse = " x "), "\n")
+cat("NA en train_svr:", anyNA(train_svr), "\n")
+cat("NA en test_svr: ", anyNA(test_svr),  "\n")
+```
+
+```{r guardado-artefactos-svr}
+saveRDS(train_svr,      "artefactos/train_svr.rds")
+saveRDS(test_svr,       "artefactos/test_svr.rds")
+saveRDS(dummy_svr,      "artefactos/dummy_svr.rds")
+saveRDS(preprocess_svr, "artefactos/preprocess_svr.rds")
+```
+
+```{r funcion-metricas-regresion}
+calcular_metricas_regresion <- function(real, predicho, nombre_modelo) {
+  tibble(
+    modelo = nombre_modelo,
+    RMSE   = sqrt(mean((real - predicho)^2, na.rm = TRUE)),
+    MAE    = mean(abs(real - predicho),     na.rm = TRUE),
+    R2     = cor(real, predicho, use = "complete.obs")^2
+  )
+}
+```
+
+El RMSE penaliza con mayor peso los errores grandes, lo que resulta util cuando una prediccion muy alejada del precio real puede generar recomendaciones comerciales erroneas. El MAE complementa esta lectura al expresar el error promedio en unidades monetarias directamente interpretables. El R² indica que proporcion de la variabilidad del precio fue capturada por el modelo, facilitando la comparacion relativa entre kernels.
