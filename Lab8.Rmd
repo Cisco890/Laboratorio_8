@@ -1180,3 +1180,186 @@ calcular_metricas_regresion <- function(real, predicho, nombre_modelo) {
 ```
 
 El RMSE penaliza con mayor peso los errores grandes, lo que resulta util cuando una prediccion muy alejada del precio real puede generar recomendaciones comerciales erroneas. El MAE complementa esta lectura al expresar el error promedio en unidades monetarias directamente interpretables. El R² indica que proporcion de la variabilidad del precio fue capturada por el modelo, facilitando la comparacion relativa entre kernels.
+
+## Ajuste de modelos de regresion con vectores de soporte
+
+Una vez transformados los datos para regresion, se entrenaron tres variantes de SVR con distinto tipo de kernel. El kernel lineal actua como referencia y es eficiente computacionalmente. El kernel radial captura relaciones no lineales suavizadas por el ancho de banda sigma. El kernel polinomial permite superficies de mayor curvatura segun el grado elegido. La validacion cruzada sobre cada grilla de hiperparametros permite seleccionar la configuracion con menor error de prediccion antes de evaluar en el conjunto de prueba.
+
+```{r control-entrenamiento-svr}
+set.seed(123)
+
+modo_rapido_svr <- TRUE
+folds_svr       <- if (isTRUE(modo_rapido_svr)) 3 else 10
+
+control_svr <- trainControl(
+  method          = "cv",
+  number          = folds_svr,
+  savePredictions = "none"
+)
+```
+
+### SVR con kernel lineal
+
+```{r modelo-svr-lineal, cache=TRUE}
+grid_svr_lineal <- if (isTRUE(modo_rapido_svr)) {
+  expand.grid(C = 1)
+} else {
+  expand.grid(C = c(0.1, 1, 10))
+}
+
+control_svr_lineal <- if (isTRUE(modo_rapido_svr)) {
+  trainControl(method = "none", savePredictions = "none")
+} else {
+  control_svr
+}
+
+ruta_svr_lineal <- if (isTRUE(modo_rapido_svr)) {
+  "artefactos/modelo_svr_lineal_rapido.rds"
+} else {
+  "artefactos/modelo_svr_lineal.rds"
+}
+
+if (file.exists(ruta_svr_lineal)) {
+  modelo_svr_lineal <- readRDS(ruta_svr_lineal)
+  tiempo_svr_lineal <- c(elapsed = NA_real_)
+} else {
+  train_svr_lineal <- train_svr
+
+  if (isTRUE(modo_rapido_svr)) {
+    n_max_svr_lineal  <- min(3000, nrow(train_svr))
+    idx_svr_lineal    <- sample(seq_len(nrow(train_svr)), size = n_max_svr_lineal)
+    train_svr_lineal  <- train_svr[idx_svr_lineal, , drop = FALSE]
+  }
+
+  set.seed(123)
+  tiempo_svr_lineal <- system.time({
+    modelo_svr_lineal <- train(
+      price ~ .,
+      data      = train_svr_lineal,
+      method    = "svmLinear",
+      trControl = control_svr_lineal,
+      tuneGrid  = grid_svr_lineal,
+      metric    = "RMSE"
+    )
+  })
+  saveRDS(modelo_svr_lineal, ruta_svr_lineal)
+}
+
+modelo_svr_lineal
+if (!isTRUE(modo_rapido_svr)) plot(modelo_svr_lineal, main = "RMSE vs. C - SVR lineal")
+```
+
+El kernel lineal asume que la relacion entre los predictores y el precio es aproximadamente lineal en el espacio transformado. Su ventaja principal es la velocidad de ajuste y la facilidad de interpretacion del parametro C, que controla la tolerancia frente a errores dentro del margen epsilon.
+
+### SVR con kernel radial
+
+```{r modelo-svr-radial, cache=TRUE}
+grid_svr_radial <- if (isTRUE(modo_rapido_svr)) {
+  expand.grid(C = 1, sigma = 0.05)
+} else {
+  expand.grid(
+    C     = c(0.1, 1, 10),
+    sigma = c(0.01, 0.05, 0.1)
+  )
+}
+
+control_svr_radial <- if (isTRUE(modo_rapido_svr)) {
+  trainControl(method = "none", savePredictions = "none")
+} else {
+  control_svr
+}
+
+ruta_svr_radial <- if (isTRUE(modo_rapido_svr)) {
+  "artefactos/modelo_svr_radial_rapido.rds"
+} else {
+  "artefactos/modelo_svr_radial.rds"
+}
+
+if (file.exists(ruta_svr_radial)) {
+  modelo_svr_radial <- readRDS(ruta_svr_radial)
+  tiempo_svr_radial <- c(elapsed = NA_real_)
+} else {
+  train_svr_radial <- train_svr
+
+  if (isTRUE(modo_rapido_svr)) {
+    n_max_svr_radial <- min(3000, nrow(train_svr))
+    idx_svr_radial   <- sample(seq_len(nrow(train_svr)), size = n_max_svr_radial)
+    train_svr_radial <- train_svr[idx_svr_radial, , drop = FALSE]
+  }
+
+  set.seed(123)
+  tiempo_svr_radial <- system.time({
+    modelo_svr_radial <- train(
+      price ~ .,
+      data      = train_svr_radial,
+      method    = "svmRadial",
+      trControl = control_svr_radial,
+      tuneGrid  = grid_svr_radial,
+      metric    = "RMSE"
+    )
+  })
+  saveRDS(modelo_svr_radial, ruta_svr_radial)
+}
+
+modelo_svr_radial
+if (!isTRUE(modo_rapido_svr)) plot(modelo_svr_radial, main = "RMSE vs. C y sigma - SVR radial")
+```
+
+El kernel radial introduce una funcion de base que mide similitud exponencial entre observaciones. El parametro sigma controla el alcance de esta influencia: valores pequenos hacen el modelo mas local y sensible a vecinos cercanos, mientras que valores grandes suavizan la superficie de prediccion. La combinacion con C determina la complejidad efectiva del modelo.
+
+### SVR con kernel polinomial
+
+```{r modelo-svr-polinomial, cache=TRUE}
+grid_svr_polinomial <- if (isTRUE(modo_rapido_svr)) {
+  expand.grid(degree = 2, scale = 0.05, C = 1)
+} else {
+  expand.grid(
+    degree = c(2, 3),
+    scale  = c(0.01, 0.05, 0.1),
+    C      = c(0.1, 1, 10)
+  )
+}
+
+control_svr_polinomial <- if (isTRUE(modo_rapido_svr)) {
+  trainControl(method = "none", savePredictions = "none")
+} else {
+  control_svr
+}
+
+ruta_svr_polinomial <- if (isTRUE(modo_rapido_svr)) {
+  "artefactos/modelo_svr_polinomial_rapido.rds"
+} else {
+  "artefactos/modelo_svr_polinomial.rds"
+}
+
+if (file.exists(ruta_svr_polinomial)) {
+  modelo_svr_polinomial <- readRDS(ruta_svr_polinomial)
+  tiempo_svr_polinomial <- c(elapsed = NA_real_)
+} else {
+  train_svr_polinomial <- train_svr
+
+  if (isTRUE(modo_rapido_svr)) {
+    n_max_svr_poli   <- min(3000, nrow(train_svr))
+    idx_svr_poli     <- sample(seq_len(nrow(train_svr)), size = n_max_svr_poli)
+    train_svr_polinomial <- train_svr[idx_svr_poli, , drop = FALSE]
+  }
+
+  set.seed(123)
+  tiempo_svr_polinomial <- system.time({
+    modelo_svr_polinomial <- train(
+      price ~ .,
+      data      = train_svr_polinomial,
+      method    = "svmPoly",
+      trControl = control_svr_polinomial,
+      tuneGrid  = grid_svr_polinomial,
+      metric    = "RMSE"
+    )
+  })
+  saveRDS(modelo_svr_polinomial, ruta_svr_polinomial)
+}
+
+modelo_svr_polinomial
+if (!isTRUE(modo_rapido_svr)) plot(modelo_svr_polinomial, main = "RMSE vs. hiperparametros - SVR polinomial")
+```
+
+El kernel polinomial de grado 2 genera superficies cuadraticas de prediccion, mientras que el de grado 3 agrega mayor curvatura. Grados elevados combinados con C alto aumentan el riesgo de sobreajuste, por lo que la validacion cruzada es esencial para identificar la configuracion que generaliza mejor al conjunto de prueba.
