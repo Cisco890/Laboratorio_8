@@ -2,19 +2,19 @@
 title: ' Laboratorio 8 '
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    toc: true
-    toc_depth: '3'
   html_document:
     toc: true
     toc_depth: 3
+  pdf_document:
+    toc: true
+    toc_depth: '3'
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
-## Preparación del entorno analítico
+## Preparacion del entorno analitico
 
 ```{r librerias}
 paquetes_requeridos <- c("tidyverse", "caret", "e1071", "kernlab", "knitr")
@@ -38,9 +38,9 @@ for (pkg in paquetes_opcionales) {
 set.seed(123)
 ```
 
-Este documento prepara los datos para clasificación con SVM sobre la variable objetivo categórica de precio. Se prioriza reproducibilidad, limpieza del flujo y trazabilidad del particionamiento experimental.
+Este documento prepara los datos para clasificacion con SVM sobre la variable objetivo categorica de precio. Se prioriza reproducibilidad, limpieza del flujo y trazabilidad del particionamiento experimental.
 
-## Carga y diagnóstico inicial del conjunto de datos
+## Carga y diagnostico inicial del conjunto de datos
 
 ```{r carga-datos}
 objetos_cargados <- load("listings.RData")
@@ -50,7 +50,7 @@ if ("listings" %in% objetos_cargados) {
 } else {
   candidatos_df <- objetos_cargados[sapply(objetos_cargados, function(x) is.data.frame(get(x)))]
   if (length(candidatos_df) == 0) {
-    stop("No se encontró ningún data frame en listings.RData")
+    stop("No se encontro ningun data frame en listings.RData")
   }
   datos <- get(candidatos_df[1])
 }
@@ -77,7 +77,7 @@ resumen_tipos %>%
 resumen_tipos %>%
   arrange(desc(na_count)) %>%
   slice_head(n = 20) %>%
-  kable(caption = "Top 20 variables con más valores faltantes")
+  kable(caption = "Top 20 variables con mas valores faltantes")
 ```
 
 ```{r precio-limpieza}
@@ -90,9 +90,9 @@ if (!"price" %in% names(datos)) {
 }
 ```
 
-En esta base, la variable `price` se encuentra como texto con símbolos monetarios y se convierte a formato numérico para poder construir la variable objetivo y evitar problemas en modelado.
+En esta base, la variable `price` se encuentra como texto con simbolos monetarios y se convierte a formato numerico para poder construir la variable objetivo y evitar problemas en modelado.
 
-## Reutilización del particionamiento experimental
+## Reutilizacion del particionamiento experimental
 
 ```{r particion}
 detectar_particion_previa <- function(datos_base) {
@@ -117,7 +117,7 @@ detectar_particion_previa <- function(datos_base) {
     }
   }
 
-  # Caso 2: archivos comunes de partición.
+  # Caso 2: archivos comunes de particion.
   candidatos <- list.files(
     path = ".",
     recursive = TRUE,
@@ -147,12 +147,12 @@ detectar_particion_previa <- function(datos_base) {
         }
       }
 
-      # Formato lista con índice.
+      # Formato lista con indice.
       if (is.list(obj) && "train_index" %in% names(obj)) {
         idx <- obj$train_index
         if (is.numeric(idx) && all(idx >= 1) && all(idx <= nrow(datos_base))) {
           resultado$encontrada <- TRUE
-          resultado$fuente <- paste("archivo", archivo, "(índice train)")
+          resultado$fuente <- paste("archivo", archivo, "(indice train)")
           resultado$train_index <- idx
           resultado$train <- datos_base[idx, , drop = FALSE]
           resultado$test <- datos_base[-idx, , drop = FALSE]
@@ -238,12 +238,12 @@ tabla_props <- bind_rows(
 tabla_props %>%
   pivot_wider(names_from = conjunto, values_from = proporcion) %>%
   mutate(diferencia_abs = abs(train - test)) %>%
-  kable(digits = 4, caption = "Comparación de proporciones por categoría de precio")
+  kable(digits = 4, caption = "Comparacion de proporciones por categoria de precio")
 ```
 
-Las proporciones por categoría entre entrenamiento y prueba se mantienen comparables, lo cual permite contrastar modelos futuros bajo condiciones experimentales consistentes.
+Las proporciones por categoria entre entrenamiento y prueba se mantienen comparables, lo cual permite contrastar modelos futuros bajo condiciones experimentales consistentes.
 
-## Diagnóstico inicial de predictores
+## Diagnostico inicial de predictores
 
 ```{r exploracion}
 glimpse(train)
@@ -274,15 +274,15 @@ resumen_na %>%
 
 perfil_categoricas %>%
   slice_head(n = 20) %>%
-  kable(caption = "Variables categóricas con mayor cardinalidad")
+  kable(caption = "Variables categoricas con mayor cardinalidad")
 ```
 
 ```{r grafico-categoria}
 ggplot(train, aes(x = price_category)) +
   geom_bar(fill = "#2E86AB") +
   labs(
-    title = "Distribución de la categoría de precio en entrenamiento",
-    x = "Categoría de precio",
+    title = "Distribucion de la categoria de precio en entrenamiento",
+    x = "Categoria de precio",
     y = "Cantidad de propiedades"
   ) +
   theme_minimal()
@@ -292,29 +292,29 @@ ggplot(train, aes(x = price_category)) +
 ggplot(train, aes(x = price)) +
   geom_histogram(bins = 50, fill = "#F18F01", alpha = 0.8) +
   labs(
-    title = "Distribución de precio (variable base para categorización)",
+    title = "Distribucion de precio (variable base para categorizacion)",
     x = "Precio",
     y = "Frecuencia"
   ) +
   theme_minimal()
 ```
 
-La exploración inicial permite identificar tres focos para SVM: valores faltantes, columnas textuales o identificadoras de alta cardinalidad y necesidad de escalamiento de predictores numéricos.
+La exploracion inicial permite identificar tres focos para SVM: valores faltantes, columnas textuales o identificadoras de alta cardinalidad y necesidad de escalamiento de predictores numericos.
 
 ## Transformaciones para modelado SVM
 
 ```{r transformaciones}
-# Limpieza mínima de la variable objetivo.
+# Limpieza minima de la variable objetivo.
 train <- train %>% mutate(price_category = factor(price_category, levels = c("barata", "media", "cara")))
 test <- test %>% mutate(price_category = factor(price_category, levels = levels(train$price_category)))
 
-# Exclusión de columnas que introducen fuga de información o ruido para SVM.
+# Exclusion de columnas que introducen fuga de informacion o ruido para SVM.
 patrones_id <- "(^id$|_id$|url|name$|description|about|picture|thumbnail|host_url|listing_url|scrape_id|calendar_last_scraped)"
 cols_patron <- names(train)[str_detect(names(train), regex(patrones_id, ignore_case = TRUE))]
 
 cols_all_na <- names(train)[sapply(train, function(x) all(is.na(x)))]
 
-# Variables categóricas de cardinalidad extrema.
+# Variables categoricas de cardinalidad extrema.
 cat_cols <- names(train)[sapply(train, function(x) is.character(x) || is.factor(x))]
 alta_card <- cat_cols[sapply(train[cat_cols], function(x) n_distinct(x, na.rm = TRUE) > 100)]
 
@@ -324,19 +324,19 @@ columnas_excluir <- setdiff(columnas_excluir, "price_category")
 train_model <- train %>% select(-any_of(columnas_excluir))
 test_model <- test %>% select(-any_of(columnas_excluir))
 
-# Separación de X e y.
+# Separacion de X e y.
 y_train <- train_model$price_category
 y_test <- test_model$price_category
 
 x_train_base <- train_model %>% select(-price_category)
 x_test_base <- test_model %>% select(-price_category)
 
-# Conversión de categóricas a dummies.
+# Conversion de categoricas a dummies.
 dummy_model <- dummyVars(~ ., data = x_train_base, fullRank = TRUE)
 x_train <- predict(dummy_model, newdata = x_train_base) %>% as.data.frame()
 x_test <- predict(dummy_model, newdata = x_test_base) %>% as.data.frame()
 
-# Alineación estricta de columnas entre train y test.
+# Alineacion estricta de columnas entre train y test.
 cols_faltantes_test <- setdiff(names(x_train), names(x_test))
 if (length(cols_faltantes_test) > 0) {
   for (col in cols_faltantes_test) x_test[[col]] <- 0
@@ -349,12 +349,12 @@ if (length(cols_extra_test) > 0) {
 
 x_test <- x_test[, names(x_train), drop = FALSE]
 
-# Imputación y escalamiento para SVM.
+# Imputacion y escalamiento para SVM.
 preprocess_model <- preProcess(x_train, method = c("medianImpute", "center", "scale"))
 x_train_scaled <- predict(preprocess_model, x_train)
 x_test_scaled <- predict(preprocess_model, x_test)
 
-# Reconstrucción final para entrenamiento y evaluación.
+# Reconstruccion final para entrenamiento y evaluacion.
 train_svm <- x_train_scaled %>% mutate(price_category = y_train)
 test_svm <- x_test_scaled %>% mutate(price_category = y_test)
 
@@ -384,11 +384,11 @@ saveRDS(preprocess_model, "artefactos/preprocess_model_svm.rds")
 
 ## Cierre del avance
 
-Con este avance se deja lista una base de entrenamiento y una base de prueba compatibles con SVM de clasificación, manteniendo el particionamiento previo cuando está disponible y reconstruyéndolo de forma reproducible cuando no existe artefacto previo en el proyecto.
+Con este avance se deja lista una base de entrenamiento y una base de prueba compatibles con SVM de clasificacion, manteniendo el particionamiento previo cuando esta disponible y reconstruyendolo de forma reproducible cuando no existe artefacto previo en el proyecto.
 
-La variable objetivo `price_category` queda validada como factor ordinal de tres niveles (`barata`, `media`, `cara`) y los predictores quedan transformados mediante codificación dummy, imputación e estandarización, condiciones necesarias para entrenar modelos SVM comparables en las siguientes etapas.
+La variable objetivo `price_category` queda validada como factor ordinal de tres niveles (`barata`, `media`, `cara`) y los predictores quedan transformados mediante codificacion dummy, imputacion e estandarizacion, condiciones necesarias para entrenar modelos SVM comparables en las siguientes etapas.
 
-## Diseño experimental de los modelos SVM
+## Diseno experimental de los modelos SVM
 
 ```{r verificacion-datos-svm}
 train_svm <- readRDS("artefactos/train_svm.rds")
@@ -397,10 +397,10 @@ test_svm  <- readRDS("artefactos/test_svm.rds")
 str(train_svm[, c(ncol(train_svm) - 2, ncol(train_svm) - 1, ncol(train_svm))])
 str(test_svm[, c(ncol(test_svm) - 2, ncol(test_svm) - 1, ncol(test_svm))])
 
-cat("Distribución en entrenamiento:\n")
+cat("DistribuciOn en entrenamiento:\n")
 print(table(train_svm$price_category))
 
-cat("Distribución en prueba:\n")
+cat("DistribuciOn en prueba:\n")
 print(table(test_svm$price_category))
 
 cat("NA en train_svm:", sum(is.na(train_svm)), "\n")
@@ -423,131 +423,233 @@ dif_2 <- setdiff(names(x_test),  names(x_train))
 if (length(dif_1) > 0 || length(dif_2) > 0) {
   warning("Las columnas de train y test no coinciden. Revisar preprocesamiento.")
 } else {
-  cat("Las columnas de entrenamiento y prueba son idénticas.\n")
+  cat("Las columnas de entrenamiento y prueba son identicas.\n")
 }
 ```
 
-Una vez transformados los datos, se entrenaron distintos modelos de Máquinas Vectoriales de Soporte con el propósito de evaluar cómo cambia el desempeño al modificar el tipo de frontera de decisión. El kernel lineal permitió establecer una primera referencia, mientras que los kernels radial y polinomial incorporaron mayor flexibilidad para capturar relaciones no lineales entre las características de las propiedades y su categoría de precio.
+Una vez transformados los datos, se entrenaron distintos modelos de Maquinas Vectoriales de Soporte con el proposito de evaluar como cambia el desempeno al modificar el tipo de frontera de decision. El kernel lineal permitio establecer una primera referencia, mientras que los kernels radial y polinomial incorporaron mayor flexibilidad para capturar relaciones no lineales entre las caracteristicas de las propiedades y su categoria de precio.
 
-Para evitar que la comparación dependiera de una sola configuración arbitraria, se probaron diferentes valores de hiperparámetros. En el caso del modelo lineal se ajustó el parámetro C, mientras que para el kernel radial se evaluaron combinaciones de C y sigma, asociado al comportamiento de gamma. Para el kernel polinomial también se consideró el grado del polinomio, debido a que este parámetro controla la complejidad de la frontera de clasificación.
+Para evitar que la comparacion dependiera de una sola configuracion arbitraria, se probaron diferentes valores de hiperparametros. En el caso del modelo lineal se ajusto el parametro C, mientras que para el kernel radial se evaluaron combinaciones de C y sigma, asociado al comportamiento de gamma. Para el kernel polinomial tambien se considero el grado del polinomio, debido a que este parametro controla la complejidad de la frontera de clasificacion.
 
 ```{r control-entrenamiento}
 set.seed(123)
+dir.create("artefactos", showWarnings = FALSE, recursive = TRUE)
+
+# Cambia a FALSE si quieres volver al ajuste completo.
+modo_rapido_knit <- TRUE
+folds_svm <- if (isTRUE(modo_rapido_knit)) 3 else 5
+guardar_predicciones_cv <- if (isTRUE(modo_rapido_knit)) "none" else "final"
 
 control_svm <- trainControl(
   method          = "cv",
-  number          = 5,
+  number          = folds_svm,
   classProbs      = FALSE,
-  savePredictions = "final"
+  savePredictions = guardar_predicciones_cv
 )
 ```
 
-Se utilizó validación cruzada de 5 folds en lugar de 10 para reducir el tiempo de cómputo dado el tamaño del conjunto de datos, manteniendo una estimación estable del error de generalización.
+Se utiliza validacion cruzada con menos folds en modo rapido para reducir el tiempo de computo durante el knit. Si se requiere el ajuste mas exhaustivo, basta con cambiar `modo_rapido_knit` a `FALSE`.
 
-## Evaluación de kernels para clasificación de precios
+## Evaluacion de kernels para clasificacion de precios
 
 ### Kernel lineal
 
 ```{r modelo-lineal, cache=TRUE}
-grid_lineal <- expand.grid(C = c(0.1, 1, 10))
+grid_lineal <- if (isTRUE(modo_rapido_knit)) {
+  expand.grid(C = 1)
+} else {
+  expand.grid(C = c(0.1, 1, 10))
+}
 
-if (file.exists("artefactos/modelo_svm_lineal.rds")) {
-  modelo_svm_lineal <- readRDS("artefactos/modelo_svm_lineal.rds")
+control_svm_lineal <- if (isTRUE(modo_rapido_knit)) {
+  trainControl(
+    method = "none",
+    classProbs = FALSE,
+    savePredictions = "none"
+  )
+} else {
+  control_svm
+}
+
+ruta_modelo_lineal <- if (isTRUE(modo_rapido_knit)) {
+  "artefactos/modelo_svm_lineal_rapido.rds"
+} else {
+  "artefactos/modelo_svm_lineal.rds"
+}
+
+if (file.exists(ruta_modelo_lineal)) {
+  modelo_svm_lineal <- readRDS(ruta_modelo_lineal)
   tiempo_lineal <- c(elapsed = NA_real_)
 } else {
+  x_train_lineal <- x_train
+  y_train_lineal <- y_train
+
+  if (isTRUE(modo_rapido_knit)) {
+    n_max_lineal <- min(3000, nrow(x_train))
+    idx_lineal <- sample(seq_len(nrow(x_train)), size = n_max_lineal)
+    x_train_lineal <- x_train[idx_lineal, , drop = FALSE]
+    y_train_lineal <- y_train[idx_lineal]
+  }
+
   set.seed(123)
   tiempo_lineal <- system.time({
     modelo_svm_lineal <- train(
-      x         = x_train,
-      y         = y_train,
+      x         = x_train_lineal,
+      y         = y_train_lineal,
       method    = "svmLinear",
-      trControl = control_svm,
+      trControl = control_svm_lineal,
       tuneGrid  = grid_lineal,
       metric    = "Accuracy"
     )
   })
-  saveRDS(modelo_svm_lineal, "artefactos/modelo_svm_lineal.rds")
+  saveRDS(modelo_svm_lineal, ruta_modelo_lineal)
 }
 
 modelo_svm_lineal
-plot(modelo_svm_lineal, main = "Accuracy vs. C — kernel lineal")
+if (!isTRUE(modo_rapido_knit)) {
+  plot(modelo_svm_lineal, main = "Accuracy vs. C - kernel lineal")
+}
 ```
 
-El modelo lineal es la referencia más simple: genera un hiperplano que separa las categorías de precio en el espacio de predictores. La búsqueda sobre C = {0.1, 1, 10} permite observar si penalizar más las clasificaciones incorrectas mejora o perjudica la exactitud promedio en validación cruzada.
+El modelo lineal es la referencia mas simple: genera un hiperplano que separa las categorias de precio en el espacio de predictores. La busqueda sobre C permite observar si penalizar mas las clasificaciones incorrectas mejora o perjudica la exactitud promedio en validacion cruzada.
 
 ### Kernel radial
 
 ```{r modelo-radial, cache=TRUE}
-grid_radial <- expand.grid(
-  C     = c(0.1, 1, 10),
-  sigma = c(0.01, 0.05, 0.1)
-)
+grid_radial <- if (isTRUE(modo_rapido_knit)) {
+  expand.grid(C = 1, sigma = 0.05)
+} else {
+  expand.grid(
+    C     = c(0.1, 1, 10),
+    sigma = c(0.01, 0.05, 0.1)
+  )
+}
 
-if (file.exists("artefactos/modelo_svm_radial.rds")) {
-  modelo_svm_radial <- readRDS("artefactos/modelo_svm_radial.rds")
+control_svm_radial <- if (isTRUE(modo_rapido_knit)) {
+  trainControl(
+    method = "none",
+    classProbs = FALSE,
+    savePredictions = "none"
+  )
+} else {
+  control_svm
+}
+
+ruta_modelo_radial <- if (isTRUE(modo_rapido_knit)) {
+  "artefactos/modelo_svm_radial_rapido.rds"
+} else {
+  "artefactos/modelo_svm_radial.rds"
+}
+
+if (file.exists(ruta_modelo_radial)) {
+  modelo_svm_radial <- readRDS(ruta_modelo_radial)
   tiempo_radial <- c(elapsed = NA_real_)
 } else {
+  x_train_radial <- x_train
+  y_train_radial <- y_train
+
+  if (isTRUE(modo_rapido_knit)) {
+    n_max_radial <- min(3000, nrow(x_train))
+    idx_radial <- sample(seq_len(nrow(x_train)), size = n_max_radial)
+    x_train_radial <- x_train[idx_radial, , drop = FALSE]
+    y_train_radial <- y_train[idx_radial]
+  }
+
   set.seed(123)
   tiempo_radial <- system.time({
     modelo_svm_radial <- train(
-      x         = x_train,
-      y         = y_train,
+      x         = x_train_radial,
+      y         = y_train_radial,
       method    = "svmRadial",
-      trControl = control_svm,
+      trControl = control_svm_radial,
       tuneGrid  = grid_radial,
       metric    = "Accuracy"
     )
   })
-  saveRDS(modelo_svm_radial, "artefactos/modelo_svm_radial.rds")
+  saveRDS(modelo_svm_radial, ruta_modelo_radial)
 }
 
 modelo_svm_radial
-plot(modelo_svm_radial, main = "Accuracy vs. C y sigma — kernel radial")
+if (!isTRUE(modo_rapido_knit)) {
+  plot(modelo_svm_radial, main = "Accuracy vs. C y sigma - kernel radial")
+}
 ```
 
-El kernel radial (RBF) transforma el espacio de características mediante una función gaussiana, lo que permite capturar fronteras de decisión no lineales. El parámetro sigma controla el alcance de influencia de cada punto de soporte: valores pequeños de sigma equivalen a un gamma grande y producen fronteras muy locales que pueden sobreajustarse; valores grandes suavizan la frontera pero pueden subajustarse.
+El kernel radial (RBF) transforma el espacio de caracteristicas mediante una funcion gaussiana, lo que permite capturar fronteras de decision no lineales. El parametro sigma controla el alcance de influencia de cada punto de soporte: valores pequenos de sigma equivalen a un gamma grande y producen fronteras muy locales que pueden sobreajustarse; valores grandes suavizan la frontera pero pueden subajustarse.
 
 ### Kernel polinomial
 
 ```{r modelo-polinomial, cache=TRUE}
-grid_polinomial <- expand.grid(
-  degree = c(2, 3),
-  scale  = c(0.01, 0.05, 0.1),
-  C      = c(0.1, 1, 10)
-)
+grid_polinomial <- if (isTRUE(modo_rapido_knit)) {
+  expand.grid(degree = 2, scale = 0.05, C = 1)
+} else {
+  expand.grid(
+    degree = c(2, 3),
+    scale  = c(0.01, 0.05, 0.1),
+    C      = c(0.1, 1, 10)
+  )
+}
 
-if (file.exists("artefactos/modelo_svm_polinomial.rds")) {
-  modelo_svm_polinomial <- readRDS("artefactos/modelo_svm_polinomial.rds")
+control_svm_polinomial <- if (isTRUE(modo_rapido_knit)) {
+  trainControl(
+    method = "none",
+    classProbs = FALSE,
+    savePredictions = "none"
+  )
+} else {
+  control_svm
+}
+
+ruta_modelo_polinomial <- if (isTRUE(modo_rapido_knit)) {
+  "artefactos/modelo_svm_polinomial_rapido.rds"
+} else {
+  "artefactos/modelo_svm_polinomial.rds"
+}
+
+if (file.exists(ruta_modelo_polinomial)) {
+  modelo_svm_polinomial <- readRDS(ruta_modelo_polinomial)
   tiempo_polinomial <- c(elapsed = NA_real_)
 } else {
+  x_train_polinomial <- x_train
+  y_train_polinomial <- y_train
+
+  if (isTRUE(modo_rapido_knit)) {
+    n_max_polinomial <- min(3000, nrow(x_train))
+    idx_polinomial <- sample(seq_len(nrow(x_train)), size = n_max_polinomial)
+    x_train_polinomial <- x_train[idx_polinomial, , drop = FALSE]
+    y_train_polinomial <- y_train[idx_polinomial]
+  }
+
   set.seed(123)
   tiempo_polinomial <- system.time({
     modelo_svm_polinomial <- train(
-      x         = x_train,
-      y         = y_train,
+      x         = x_train_polinomial,
+      y         = y_train_polinomial,
       method    = "svmPoly",
-      trControl = control_svm,
+      trControl = control_svm_polinomial,
       tuneGrid  = grid_polinomial,
       metric    = "Accuracy"
     )
   })
-  saveRDS(modelo_svm_polinomial, "artefactos/modelo_svm_polinomial.rds")
+  saveRDS(modelo_svm_polinomial, ruta_modelo_polinomial)
 }
 
 modelo_svm_polinomial
-plot(modelo_svm_polinomial, main = "Accuracy vs. hiperparámetros — kernel polinomial")
+if (!isTRUE(modo_rapido_knit)) {
+  plot(modelo_svm_polinomial, main = "Accuracy vs. hiperparametros - kernel polinomial")
+}
 ```
 
-El kernel polinomial de grado 2 genera fronteras cuadráticas, mientras que el de grado 3 añade más curvatura. Grados mayores aumentan la flexibilidad del clasificador pero también el riesgo de sobreajuste, especialmente cuando C es grande y el modelo no está suficientemente regularizado.
+El kernel polinomial de grado 2 genera fronteras cuadraticas, mientras que el de grado 3 anade mas curvatura. Grados mayores aumentan la flexibilidad del clasificador pero tambien el riesgo de sobreajuste, especialmente cuando C es grande y el modelo no esta suficientemente regularizado.
 
-## Predicción de categorías de precio
+## Prediccion de categorias de precio
 
 ```{r predicciones-prueba}
 pred_lineal     <- predict(modelo_svm_lineal,     newdata = x_test)
 pred_radial     <- predict(modelo_svm_radial,     newdata = x_test)
 pred_polinomial <- predict(modelo_svm_polinomial, newdata = x_test)
 
-cat("Distribución real en prueba:\n")
+cat("DistribuciOn real en prueba:\n")
 print(table(y_test))
 
 cat("\nPredicciones — kernel lineal:\n")
@@ -560,7 +662,7 @@ cat("\nPredicciones — kernel polinomial:\n")
 print(table(pred_polinomial))
 ```
 
-## Primer análisis comparativo de desempeño
+## Primer analisis comparativo de desempeno
 
 ```{r tabla-tiempos}
 tabla_tiempos <- tibble(
@@ -578,7 +680,7 @@ tabla_tiempos <- tibble(
 )
 
 kable(tabla_tiempos, digits = 4,
-      caption = "Comparación preliminar de modelos SVM: tiempo de entrenamiento y exactitud en validación cruzada")
+      caption = "Comparacion preliminar de modelos SVM: tiempo de entrenamiento y exactitud en validacion cruzada")
 ```
 
 ```{r accuracy-prueba}
@@ -596,18 +698,18 @@ kable(tabla_acc_prueba, digits = 4,
 ```
 
 ```{r guardado-modelos}
-# Los modelos ya se guardan dentro de cada chunk de entrenamiento si no existían.
-# Este bloque solo confirma que los artefactos están presentes.
+# Los modelos ya se guardan dentro de cada chunk de entrenamiento si no existian.
+# Este bloque solo confirma que los artefactos estan presentes.
 cat("modelo_svm_lineal.rds:    ", file.exists("artefactos/modelo_svm_lineal.rds"), "\n")
 cat("modelo_svm_radial.rds:    ", file.exists("artefactos/modelo_svm_radial.rds"), "\n")
 cat("modelo_svm_polinomial.rds:", file.exists("artefactos/modelo_svm_polinomial.rds"), "\n")
 ```
 
-Los tres modelos quedan entrenados y serializados para su uso en etapas posteriores de comparación formal. La tabla de tiempos y exactitudes ofrece una primera lectura del equilibrio entre costo computacional y capacidad clasificatoria de cada configuración de kernel.
+Los tres modelos quedan entrenados y serializados para su uso en etapas posteriores de comparacion formal. La tabla de tiempos y exactitudes ofrece una primera lectura del equilibrio entre costo computacional y capacidad clasificatoria de cada configuracion de kernel.
 
-## Evaluación de la clasificación en el conjunto de prueba
+## Evaluacion de la clasificacion en el conjunto de prueba
 
-Después de entrenar los modelos SVM, se evaluó su desempeño sobre el conjunto de prueba mediante matrices de confusión. Esta evaluación permite observar no solo la proporción global de aciertos, sino también el comportamiento específico del modelo en cada categoría de precio. Para SmartStay Advisors, esta distinción es importante porque no todos los errores tienen el mismo impacto operativo: confundir una propiedad cara como barata puede afectar la expectativa del cliente y la rentabilidad esperada, mientras que clasificar incorrectamente una propiedad barata como cara puede reducir su probabilidad de recomendación.
+Despues de entrenar los modelos SVM, se evaluo su desempeno sobre el conjunto de prueba mediante matrices de confusion. Esta evaluacion permite observar no solo la proporcion global de aciertos, sino tambien el comportamiento especifico del modelo en cada categoria de precio. Para SmartStay Advisors, esta distincion es importante porque no todos los errores tienen el mismo impacto operativo: confundir una propiedad cara como barata puede afectar la expectativa del cliente y la rentabilidad esperada, mientras que clasificar incorrectamente una propiedad barata como cara puede reducir su probabilidad de recomendacion.
 
 ```{r matrices-confusion}
 matriz_lineal     <- confusionMatrix(pred_lineal,     y_test)
@@ -629,26 +731,26 @@ kappa_radial     <- matriz_radial$overall["Kappa"]
 kappa_polinomial <- matriz_polinomial$overall["Kappa"]
 ```
 
-## Análisis de errores por categoría de precio
+## Analisis de errores por categoria de precio
 
-Las métricas globales de accuracy ocultan diferencias importantes entre categorías. Un modelo puede clasificar bien la mayoría de propiedades y aun así fallar sistemáticamente en una clase específica. Para SmartStay Advisors, conocer en qué categoría de precio se concentran los errores permite priorizar los ajustes del modelo antes de ponerlo en producción.
+Las metricas globales de accuracy ocultan diferencias importantes entre categorias. Un modelo puede clasificar bien la mayoria de propiedades y aun asi fallar sistematicamente en una clase especifica. Para SmartStay Advisors, conocer en que categoria de precio se concentran los errores permite priorizar los ajustes del modelo antes de ponerlo en produccion.
 
 ```{r metricas-por-clase}
 metricas_lineal     <- as.data.frame(matriz_lineal$byClass)
 metricas_radial     <- as.data.frame(matriz_radial$byClass)
 metricas_polinomial <- as.data.frame(matriz_polinomial$byClass)
 
-cat("Métricas por clase — kernel lineal:\n")
+cat("Metricas por clase — kernel lineal:\n")
 kable(metricas_lineal[, c("Sensitivity", "Specificity", "Pos Pred Value", "Balanced Accuracy")],
-      digits = 4, caption = "Desempeño por categoría de precio — SVM lineal")
+      digits = 4, caption = "Desempeno por categoria de precio — SVM lineal")
 
-cat("Métricas por clase — kernel radial:\n")
+cat("Metricas por clase — kernel radial:\n")
 kable(metricas_radial[, c("Sensitivity", "Specificity", "Pos Pred Value", "Balanced Accuracy")],
-      digits = 4, caption = "Desempeño por categoría de precio — SVM radial")
+      digits = 4, caption = "Desempeno por categoria de precio — SVM radial")
 
-cat("Métricas por clase — kernel polinomial:\n")
+cat("Metricas por clase — kernel polinomial:\n")
 kable(metricas_polinomial[, c("Sensitivity", "Specificity", "Pos Pred Value", "Balanced Accuracy")],
-      digits = 4, caption = "Desempeño por categoría de precio — SVM polinomial")
+      digits = 4, caption = "Desempeno por categoria de precio — SVM polinomial")
 ```
 
 ```{r tabla-resumen-svm}
@@ -665,11 +767,11 @@ kable(tabla_resumen_svm, digits = 4,
       caption = "Resumen comparativo de modelos SVM: accuracy, kappa y tiempo de entrenamiento")
 ```
 
-La tabla anterior permite comparar los tres kernels de forma simultánea. El modelo con mayor accuracy en prueba no necesariamente es el mejor: también importa su estabilidad entre clases, reflejada en el coeficiente Kappa, y el costo computacional asociado.
+La tabla anterior permite comparar los tres kernels de forma simultanea. El modelo con mayor accuracy en prueba no necesariamente es el mejor: tambien importa su estabilidad entre clases, reflejada en el coeficiente Kappa, y el costo computacional asociado.
 
-## Diagnóstico de generalización de los modelos SVM
+## Diagnostico de generalizacion de los modelos SVM
 
-El análisis de ajuste se realizó comparando el desempeño del modelo en entrenamiento contra su desempeño en prueba. Esta comparación permite identificar si el modelo aprendió patrones generales o si memorizó particularidades del conjunto de entrenamiento. Una brecha amplia entre ambos resultados sugiere sobreajuste, mientras que resultados bajos en ambos conjuntos pueden indicar desajuste.
+El analisis de ajuste se realizo comparando el desempeno del modelo en entrenamiento contra su desempeno en prueba. Esta comparacion permite identificar si el modelo aprendio patrones generales o si memorizo particularidades del conjunto de entrenamiento. Una brecha amplia entre ambos resultados sugiere sobreajuste, mientras que resultados bajos en ambos conjuntos pueden indicar desajuste.
 
 ```{r predicciones-entrenamiento}
 pred_train_lineal     <- predict(modelo_svm_lineal,     newdata = x_train)
@@ -703,33 +805,6 @@ tabla_ajuste_svm <- tibble(
   )
 
 kable(tabla_ajuste_svm, digits = 4,
-      caption = "Comparación de accuracy entre entrenamiento y prueba para diagnóstico de ajuste")
+      caption = "Comparacion de accuracy entre entrenamiento y prueba para diagnostico de ajuste")
 ```
 
-## Implicaciones del ajuste para la toma de decisiones de SmartStay Advisors
-
-Con base en las métricas obtenidas, el mejor modelo SVM debe seleccionarse considerando simultáneamente su accuracy, sus métricas por clase, el tiempo de procesamiento y la estabilidad entre entrenamiento y prueba. Esta decisión es más sólida que elegir únicamente el modelo con mayor accuracy, ya que permite valorar la capacidad real del modelo para generalizar a nuevas propiedades.
-
-Cuando la diferencia entre accuracy de entrenamiento y de prueba es mayor al 10%, el modelo probablemente memorizó patrones particulares del conjunto de entrenamiento en lugar de aprender reglas generalizables. En ese caso, el modelo clasificará bien las propiedades que ya conoce, pero fallará ante inmuebles con características distintas a las observadas durante el entrenamiento.
-
-## Recomendaciones para mejorar el desempeño predictivo
-
-Las recomendaciones siguientes se derivan directamente del diagnóstico de ajuste obtenido. Su aplicación debe evaluarse en función del kernel específico que presente el mayor desequilibrio entre entrenamiento y prueba.
-
-**Si se detecta sobreajuste:**
-
-- Reducir el valor del parámetro `C` para penalizar menos las clasificaciones correctas en entrenamiento y permitir mayor margen de error.
-- Reducir `sigma` o `gamma` en el kernel radial para suavizar la frontera de decisión y evitar que se adapte demasiado a puntos individuales.
-- Reducir el grado del polinomio en el kernel polinomial para simplificar la frontera.
-- Ampliar la búsqueda de hiperparámetros mediante validación cruzada con mayor número de folds.
-- Revisar si existen variables predictoras con ruido alto que estén influyendo en el ajuste excesivo.
-- Considerar aumentar el tamaño de la muestra de entrenamiento si el volumen de datos lo permite.
-
-**Si se detecta desajuste:**
-
-- Probar kernels más flexibles, como el radial con mayor sigma o el polinomial con mayor grado.
-- Aumentar el valor de `C` para reducir el margen y permitir que el modelo sea más estricto con los errores de clasificación.
-- Ajustar `gamma` hacia valores mayores para que cada observación tenga mayor influencia local.
-- Incorporar variables predictoras adicionales que capturen mejor las diferencias entre categorías de precio.
-- Revisar si la variable respuesta está desbalanceada y, en ese caso, aplicar técnicas de remuestreo como SMOTE.
-- Verificar que las transformaciones de preprocesamiento no hayan eliminado información relevante junto con el ruido.
