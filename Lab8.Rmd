@@ -808,3 +808,250 @@ kable(tabla_ajuste_svm, digits = 4,
       caption = "Comparacion de accuracy entre entrenamiento y prueba para diagnostico de ajuste")
 ```
 
+## Implicaciones del ajuste para la toma de decisiones de SmartStay Advisors
+
+Con base en las metricas obtenidas, el mejor modelo SVM debe seleccionarse considerando simultaneamente su accuracy, sus metricas por clase, el tiempo de procesamiento y la estabilidad entre entrenamiento y prueba. Esta decision es mas solida que elegir unicamente el modelo con mayor accuracy, ya que permite valorar la capacidad real del modelo para generalizar a nuevas propiedades.
+
+Cuando la diferencia entre accuracy de entrenamiento y de prueba es mayor al 10%, el modelo probablemente memorizo patrones particulares del conjunto de entrenamiento en lugar de aprender reglas generalizables. En ese caso, el modelo clasificara bien las propiedades que ya conoce, pero fallara ante inmuebles con caracteristicas distintas a las observadas durante el entrenamiento.
+
+## Recomendaciones para mejorar el desempeno predictivo
+
+Las recomendaciones siguientes se derivan directamente del diagnostico de ajuste obtenido. Su aplicacion debe evaluarse en funcion del kernel especifico que presente el mayor desequilibrio entre entrenamiento y prueba.
+
+**Si se detecta sobreajuste:**
+
+- Reducir el valor del parametro `C` para penalizar menos las clasificaciones correctas en entrenamiento y permitir mayor margen de error.
+- Reducir `sigma` o `gamma` en el kernel radial para suavizar la frontera de decision y evitar que se adapte demasiado a puntos individuales.
+- Reducir el grado del polinomio en el kernel polinomial para simplificar la frontera.
+- Ampliar la busqueda de hiperparametros mediante validacion cruzada con mayor numero de folds.
+- Revisar si existen variables predictoras con ruido alto que esten influyendo en el ajuste excesivo.
+- Considerar aumentar el tamano de la muestra de entrenamiento si el volumen de datos lo permite.
+
+**Si se detecta desajuste:**
+
+- Probar kernels mas flexibles, como el radial con mayor sigma o el polinomial con mayor grado.
+- Aumentar el valor de `C` para reducir el margen y permitir que el modelo sea mas estricto con los errores de clasificacion.
+- Ajustar `gamma` hacia valores mayores para que cada observacion tenga mayor influencia local.
+- Incorporar variables predictoras adicionales que capturen mejor las diferencias entre categorias de precio.
+- Revisar si la variable respuesta esta desbalanceada y, en ese caso, aplicar tecnicas de remuestreo como SMOTE.
+- Verificar que las transformaciones de preprocesamiento no hayan eliminado informacion relevante junto con el ruido.
+
+## Contraste de desempeno entre configuraciones SVM
+
+```{r verificacion-objetos-previos-svm}
+objetos_requeridos <- c(
+  "train_svm", "test_svm",
+  "x_train", "x_test", "y_train", "y_test",
+  "modelo_svm_lineal", "modelo_svm_radial", "modelo_svm_polinomial",
+  "pred_lineal", "pred_radial", "pred_polinomial",
+  "tabla_metricas_svm", "tabla_tiempos", "tabla_ajuste_svm",
+  "matriz_lineal", "matriz_radial", "matriz_polinomial"
+)
+
+objetos_faltantes <- objetos_requeridos[!objetos_requeridos %in% ls()]
+
+if (length(objetos_faltantes) > 0) {
+  stop(paste("Faltan objetos previos:", paste(objetos_faltantes, collapse = ", ")))
+}
+```
+
+```{r consolidacion-metricas-svm}
+extraer_metricas_clasificacion <- function(nombre_modelo, matriz_confusion) {
+  metricas_clase <- as.data.frame(matriz_confusion$byClass)
+
+  if (is.null(dim(matriz_confusion$byClass))) {
+    metricas_clase <- as.data.frame(t(matriz_confusion$byClass))
+  }
+
+  metricas_clase$clase <- rownames(metricas_clase)
+  rownames(metricas_clase) <- NULL
+
+  columna_balanced <- intersect(c("Balanced Accuracy", "Balanced.Accuracy"), names(metricas_clase))[1]
+  columna_sensibilidad <- intersect(c("Sensitivity", "Sensibilidad"), names(metricas_clase))[1]
+  columna_especificidad <- intersect(c("Specificity", "Especificidad"), names(metricas_clase))[1]
+
+  tibble(
+    modelo = nombre_modelo,
+    accuracy = as.numeric(matriz_confusion$overall["Accuracy"]),
+    kappa = as.numeric(matriz_confusion$overall["Kappa"]),
+    balanced_accuracy_promedio = mean(metricas_clase[[columna_balanced]], na.rm = TRUE),
+    sensibilidad_promedio = mean(metricas_clase[[columna_sensibilidad]], na.rm = TRUE),
+    especificidad_promedio = mean(metricas_clase[[columna_especificidad]], na.rm = TRUE)
+  )
+}
+
+resumen_svm <- bind_rows(
+  extraer_metricas_clasificacion("SVM lineal", matriz_lineal),
+  extraer_metricas_clasificacion("SVM radial", matriz_radial),
+  extraer_metricas_clasificacion("SVM polinomial", matriz_polinomial)
+) %>%
+  left_join(tabla_tiempos %>% select(modelo, tiempo_segundos), by = "modelo") %>%
+  arrange(desc(accuracy))
+
+kable(
+  resumen_svm,
+  digits = 4,
+  caption = "Consolidacion de metricas principales para los modelos SVM"
+)
+```
+
+En esta consolidacion, el mejor balance no debe definirse solo por `accuracy`: el contraste entre `kappa`, `balanced_accuracy_promedio` y `tiempo_segundos` permite identificar el kernel mas robusto para entornos operativos.
+
+## Lectura operativa de los errores de clasificacion
+
+```{r tablas-errores-svm}
+obtener_errores <- function(nombre_modelo, matriz_confusion) {
+  tabla <- as.data.frame(matriz_confusion$table)
+  names(tabla) <- c("prediccion", "real", "frecuencia")
+
+  tabla %>%
+    mutate(
+      modelo = nombre_modelo,
+      tipo = ifelse(prediccion == real, "acierto", "error")
+    ) %>%
+    arrange(desc(frecuencia))
+}
+
+errores_svm <- bind_rows(
+  obtener_errores("SVM lineal", matriz_lineal),
+  obtener_errores("SVM radial", matriz_radial),
+  obtener_errores("SVM polinomial", matriz_polinomial)
+)
+
+kable(
+  errores_svm,
+  caption = "Tabla completa de aciertos y errores por combinacion real-predicha en SVM"
+)
+
+errores_svm_filtrados <- errores_svm %>%
+  filter(tipo == "error") %>%
+  arrange(modelo, desc(frecuencia))
+
+kable(
+  errores_svm_filtrados,
+  caption = "Errores de clasificacion por modelo SVM ordenados por frecuencia"
+)
+```
+
+```{r patrones-errores-svm}
+niveles_precio <- levels(y_test)
+nivel_bajo <- niveles_precio[1]
+nivel_medio <- niveles_precio[ceiling(length(niveles_precio) / 2)]
+nivel_alto <- niveles_precio[length(niveles_precio)]
+
+errores_mas_frecuentes <- errores_svm_filtrados %>%
+  group_by(modelo) %>%
+  slice_max(order_by = frecuencia, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(lectura = paste(real, "->", prediccion))
+
+errores_menos_frecuentes <- errores_svm_filtrados %>%
+  group_by(modelo) %>%
+  slice_min(order_by = frecuencia, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(lectura = paste(real, "->", prediccion))
+
+errores_extremos <- errores_svm_filtrados %>%
+  mutate(es_extremo = (real == nivel_bajo & prediccion == nivel_alto) |
+           (real == nivel_alto & prediccion == nivel_bajo)) %>%
+  filter(es_extremo) %>%
+  group_by(modelo) %>%
+  summarise(errores_graves = sum(frecuencia), .groups = "drop")
+
+confusion_bajo_medio <- errores_svm_filtrados %>%
+  filter((real == nivel_bajo & prediccion == nivel_medio) |
+           (real == nivel_medio & prediccion == nivel_bajo)) %>%
+  group_by(modelo) %>%
+  summarise(confusion_baja_media = sum(frecuencia), .groups = "drop")
+
+confusion_alto_medio <- errores_svm_filtrados %>%
+  filter((real == nivel_alto & prediccion == nivel_medio) |
+           (real == nivel_medio & prediccion == nivel_alto)) %>%
+  group_by(modelo) %>%
+  summarise(confusion_alta_media = sum(frecuencia), .groups = "drop")
+
+resumen_patrones_error <- errores_mas_frecuentes %>%
+  transmute(modelo, error_mas_frecuente = lectura, frecuencia_mas_frecuente = frecuencia) %>%
+  left_join(
+    errores_menos_frecuentes %>%
+      transmute(modelo, error_menos_frecuente = lectura, frecuencia_menos_frecuente = frecuencia),
+    by = "modelo"
+  ) %>%
+  left_join(confusion_bajo_medio, by = "modelo") %>%
+  left_join(confusion_alto_medio, by = "modelo") %>%
+  left_join(errores_extremos, by = "modelo") %>%
+  mutate(
+    across(c(confusion_baja_media, confusion_alta_media, errores_graves), ~ replace_na(., 0))
+  ) %>%
+  arrange(desc(errores_graves), desc(frecuencia_mas_frecuente))
+
+kable(
+  resumen_patrones_error,
+  caption = "Patrones criticos de error por modelo SVM"
+)
+```
+
+## Implicaciones para la categorizacion de precios
+
+```{r gravedad-errores-svm}
+clasificar_gravedad_error <- function(real, prediccion, nivel_bajo, nivel_alto) {
+  case_when(
+    real == prediccion ~ "Acierto",
+    real == nivel_bajo & prediccion == nivel_alto ~ "Error grave",
+    real == nivel_alto & prediccion == nivel_bajo ~ "Error grave",
+    TRUE ~ "Error moderado"
+  )
+}
+
+errores_svm_gravedad <- errores_svm %>%
+  mutate(
+    gravedad = clasificar_gravedad_error(real, prediccion, nivel_bajo, nivel_alto)
+  )
+
+resumen_gravedad <- errores_svm_gravedad %>%
+  filter(tipo == "error") %>%
+  group_by(modelo, gravedad) %>%
+  summarise(total = sum(frecuencia), .groups = "drop") %>%
+  arrange(modelo, desc(total))
+
+kable(
+  resumen_gravedad,
+  caption = "DistribuciOn de errores moderados y graves en modelos SVM"
+)
+```
+
+La gravedad se define con prioridad para los errores entre extremos de precio. Si en una actualizacion del proyecto cambian los niveles de la variable objetivo, la logica se adapta usando el primer y ultimo nivel como extremos para conservar consistencia.
+
+## Seleccion del clasificador SVM mas estable
+
+```{r seleccion-mejor-svm}
+resumen_final_svm <- resumen_svm %>%
+  left_join(
+    tabla_ajuste_svm %>% select(modelo, accuracy_train, accuracy_test, diferencia, diagnostico),
+    by = "modelo"
+  ) %>%
+  arrange(desc(balanced_accuracy_promedio), desc(kappa), tiempo_segundos)
+
+kable(
+  resumen_final_svm,
+  digits = 4,
+  caption = "Criterio integrado para seleccionar el modelo SVM mas estable"
+)
+
+mejor_svm <- resumen_final_svm %>%
+  arrange(desc(balanced_accuracy_promedio), desc(kappa), tiempo_segundos) %>%
+  slice(1)
+
+mejor_svm
+```
+
+La seleccion final integra desempeno global, desempeno por clase, eficiencia de entrenamiento y estabilidad de generalizacion (`accuracy_train` vs. `accuracy_test`). Este criterio reduce el riesgo de elegir un modelo rapido pero inestable, o uno preciso en promedio con errores criticos para negocio.
+
+
+## Redaccion integrable al informe ejecutivo
+
+Despues de evaluar individualmente los modelos SVM, se consolidaron sus resultados para comparar no solo la exactitud global, sino tambien la estabilidad del desempeno por categoria. Esta comparacion es relevante porque SmartStay Advisors no necesita unicamente un modelo que acierte con frecuencia, sino uno que clasifique de manera confiable las propiedades baratas, medias y caras, reduciendo errores que puedan afectar las recomendaciones comerciales.
+
+El analisis de las matrices de confusion permitio identificar los patrones de error mas frecuentes. En este contexto, no todos los errores tienen la misma relevancia: confundir una propiedad media con una barata puede tener un efecto moderado, mientras que clasificar una propiedad cara como barata puede generar expectativas incorrectas en el cliente y afectar la rentabilidad esperada.
+
+Al comparar los modelos SVM con los clasificadores desarrollados en entregas anteriores, se mantuvo el mismo conjunto de entrenamiento y prueba para asegurar una evaluacion justa. Bajo estas condiciones, el mejor modelo se selecciona con base en metricas complementarias como `accuracy`, `Kappa`, `balanced accuracy`, tiempo de procesamiento y estabilidad entre entrenamiento y prueba.
