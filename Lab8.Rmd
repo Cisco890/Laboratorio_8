@@ -14,6 +14,11 @@ output:
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
+## Link de Repositorio
+https://github.com/Cisco890/Laboratorio_8.git
+
+
+
 ## Preparacion del entorno analitico
 
 ```{r librerias}
