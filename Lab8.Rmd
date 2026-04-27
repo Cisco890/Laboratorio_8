@@ -2,12 +2,12 @@
 title: ' Laboratorio 8 '
 date: "`r Sys.Date()`"
 output:
-  pdf_document:
-    toc: true
-    toc_depth: '3'
   html_document:
     toc: true
     toc_depth: 3
+  pdf_document:
+    toc: true
+    toc_depth: '3'
 ---
 
 ```{r setup, include=FALSE}
@@ -1470,3 +1470,182 @@ kable(tabla_comparacion_regresion, digits = 4,
 Ademas de clasificar las propiedades por categoria de precio, se desarrollaron modelos SVR para estimar directamente el precio de los alojamientos. Este enfoque complementa el analisis de clasificacion al responder una pregunta distinta: no en que rango cae el precio, sino cual es el valor esperado. Para garantizar comparaciones validas, se mantuvo el mismo particionamiento experimental utilizado en entregas anteriores.
 
 Los modelos fueron evaluados mediante RMSE, MAE y R². El RMSE penaliza con mayor fuerza los errores grandes, el MAE expresa el error promedio en unidades monetarias directamente interpretables y el R² indica que proporcion de la variabilidad del precio fue capturada por el modelo. La seleccion del mejor SVR considero estas tres metricas de forma conjunta junto con el tiempo de procesamiento requerido.
+
+## Comparacion con clasificadores desarrollados previamente
+
+Los modelos SVM de clasificacion fueron entrenados bajo las mismas condiciones experimentales que los clasificadores desarrollados en entregas anteriores. Para consolidar la comparacion, se construye una tabla que incluye los resultados SVM junto con los valores de referencia de los modelos previos. Cuando los resultados de entregas anteriores esten disponibles, se deben reemplazar los campos marcados como pendientes con los valores reales obtenidos en esas sesiones.
+
+```{r tabla-comparacion-clasificacion}
+tabla_previos_clasificacion <- tibble(
+  modelo              = c("Arbol de decision", "Random Forest", "Naive Bayes",
+                          "KNN", "Regresion logistica"),
+  accuracy_test       = c(NA_real_, NA_real_, NA_real_, NA_real_, NA_real_),
+  kappa               = c(NA_real_, NA_real_, NA_real_, NA_real_, NA_real_),
+  balanced_accuracy   = c(NA_real_, NA_real_, NA_real_, NA_real_, NA_real_),
+  tiempo_segundos     = c(NA_real_, NA_real_, NA_real_, NA_real_, NA_real_),
+  diagnostico         = rep("Pendiente de entregas anteriores", 5)
+)
+
+tabla_svm_para_comparacion <- resumen_final_svm %>%
+  transmute(
+    modelo            = modelo,
+    accuracy_test     = accuracy_test,
+    kappa             = kappa,
+    balanced_accuracy = balanced_accuracy_promedio,
+    tiempo_segundos   = tiempo_segundos,
+    diagnostico       = diagnostico
+  )
+
+tabla_comparacion_clasificacion <- bind_rows(
+  tabla_previos_clasificacion,
+  tabla_svm_para_comparacion
+)
+
+kable(
+  tabla_comparacion_clasificacion,
+  digits  = 4,
+  caption = "Comparacion de modelos de clasificacion para categoria de precio"
+)
+```
+
+## Verificacion final de objetos
+
+```{r verificacion-objetos-finales}
+objetos_finales_requeridos <- c(
+  "resumen_final_svm",
+  "mejor_svm",
+  "tabla_comparacion_clasificacion",
+  "tabla_ajuste_svm",
+  "resumen_svr",
+  "mejor_svr",
+  "tabla_comparacion_regresion"
+)
+
+objetos_finales_faltantes <- objetos_finales_requeridos[
+  !objetos_finales_requeridos %in% ls()
+]
+
+if (length(objetos_finales_faltantes) > 0) {
+  stop(paste("Faltan objetos para cerrar el analisis:",
+             paste(objetos_finales_faltantes, collapse = ", ")))
+} else {
+  cat("Todos los objetos finales requeridos estan disponibles.\n")
+}
+```
+
+## Sintesis del desempeno de clasificacion
+
+```{r tabla-final-clasificacion}
+tabla_final_clasificacion <- tabla_comparacion_clasificacion %>%
+  arrange(desc(balanced_accuracy), desc(kappa), desc(accuracy_test))
+
+kable(
+  tabla_final_clasificacion,
+  digits  = 4,
+  caption = "Comparacion final de modelos de clasificacion para categoria de precio"
+)
+```
+
+```{r mejor-modelo-clasificacion-global}
+mejor_modelo_clasificacion_global <- tabla_final_clasificacion %>%
+  filter(!is.na(accuracy_test)) %>%
+  slice(1)
+
+cat("Mejor clasificador identificado:", mejor_modelo_clasificacion_global$modelo, "\n")
+cat("Accuracy en prueba:    ", round(mejor_modelo_clasificacion_global$accuracy_test, 4), "\n")
+cat("Kappa:                 ", round(mejor_modelo_clasificacion_global$kappa,         4), "\n")
+cat("Balanced accuracy:     ", round(mejor_modelo_clasificacion_global$balanced_accuracy, 4), "\n")
+```
+
+Entre los modelos SVM evaluados, el seleccionado es aquel que combina mayor balanced accuracy con mejor kappa y menor brecha entre entrenamiento y prueba. El balanced accuracy pondera el desempeno en cada categoria de precio de forma equitativa, lo cual es mas informativo que el accuracy global cuando las clases tienen distinta frecuencia en el conjunto de prueba.
+
+## Diagnostico global de ajuste
+
+```{r tabla-ajuste-clasificacion-global}
+tabla_ajuste_clasificacion_previos <- tibble(
+  modelo         = c("Arbol de decision", "Random Forest", "Naive Bayes",
+                     "KNN", "Regresion logistica"),
+  accuracy_train = c(NA_real_, NA_real_, NA_real_, NA_real_, NA_real_),
+  accuracy_test  = c(NA_real_, NA_real_, NA_real_, NA_real_, NA_real_)
+) %>%
+  mutate(
+    diferencia  = accuracy_train - accuracy_test,
+    diagnostico = case_when(
+      is.na(diferencia) ~ "Pendiente de completar con resultados previos",
+      diferencia > 0.10 ~ "Posible sobreajuste",
+      accuracy_train < 0.60 & accuracy_test < 0.60 ~ "Posible desajuste",
+      TRUE              ~ "Ajuste razonable"
+    )
+  )
+
+tabla_ajuste_clasificacion_global <- bind_rows(
+  tabla_ajuste_clasificacion_previos,
+  tabla_ajuste_svm %>% select(modelo, accuracy_train, accuracy_test, diferencia, diagnostico)
+)
+
+kable(
+  tabla_ajuste_clasificacion_global,
+  digits  = 4,
+  caption = "Diagnostico de ajuste en modelos de clasificacion"
+)
+```
+
+El diagnostico de ajuste compara la exactitud obtenida en entrenamiento contra la obtenida en prueba. Una diferencia superior al 10% sugiere que el modelo memorizo particularidades del conjunto de entrenamiento en lugar de aprender reglas generalizables, lo que reduce su utilidad para clasificar propiedades nuevas. Una exactitud baja en ambos conjuntos indica que el modelo no captura suficiente informacion de los predictores disponibles.
+
+## Sintesis del desempeno de regresion
+
+```{r tabla-final-regresion}
+tabla_final_regresion <- tabla_comparacion_regresion %>%
+  arrange(RMSE, MAE, desc(R2))
+
+kable(
+  tabla_final_regresion,
+  digits  = 4,
+  caption = "Comparacion final de modelos de regresion para estimacion directa de precios"
+)
+```
+
+```{r mejor-modelo-regresion-global}
+mejor_modelo_regresion_global <- tabla_final_regresion %>%
+  slice(1)
+
+cat("Mejor modelo de regresion identificado:", mejor_modelo_regresion_global$modelo, "\n")
+cat("RMSE:", round(mejor_modelo_regresion_global$RMSE, 4), "\n")
+cat("MAE: ", round(mejor_modelo_regresion_global$MAE,  4), "\n")
+cat("R2:  ", round(mejor_modelo_regresion_global$R2,   4), "\n")
+```
+
+El modelo con menor RMSE genera predicciones mas cercanas al precio real en promedio, con mayor penalizacion sobre errores grandes. El R² complementa esta lectura al indicar que proporcion de la variabilidad del precio fue capturada por el modelo. Cuando ambas metricas apuntan al mismo kernel, la seleccion es robusta; cuando difieren, el contexto operativo determina cual priorizar.
+
+## Resumen ejecutivo de decisiones
+
+```{r resumen-ejecutivo}
+resumen_decisiones <- tibble(
+  tipo_problema       = c("Clasificacion de categoria de precio",
+                          "Prediccion directa de precio"),
+  mejor_modelo        = c(
+    mejor_modelo_clasificacion_global$modelo,
+    mejor_modelo_regresion_global$modelo
+  ),
+  criterio_principal  = c(
+    "Balanced accuracy, Kappa, accuracy y estabilidad train/test",
+    "RMSE, MAE, R2 y tiempo de procesamiento"
+  ),
+  recomendacion       = c(
+    "Usar para clasificar propiedades como baratas, medias o caras",
+    "Usar para estimar precios competitivos de propiedades"
+  )
+)
+
+kable(resumen_decisiones, caption = "Resumen de decisiones del analisis")
+```
+
+## Recomendaciones finales para SmartStay Advisors
+
+Los resultados obtenidos permiten analizar el problema de precios desde dos perspectivas complementarias. Por un lado, los modelos de clasificacion permiten asignar cada propiedad a una categoria de precio, lo cual facilita decisiones rapidas de segmentacion comercial. Por otro lado, los modelos de regresion permiten estimar directamente el precio esperado, lo cual resulta util cuando SmartStay Advisors necesita recomendar valores competitivos o analizar diferencias entre propiedades similares.
+
+La comparacion de modelos se realizo manteniendo los mismos conjuntos de entrenamiento y prueba utilizados en entregas anteriores. Esto permitio que las diferencias observadas fueran atribuibles al comportamiento de los algoritmos y no a cambios en la particion de los datos. Para clasificacion, la seleccion del mejor modelo considero accuracy, Kappa, balanced accuracy, errores por clase y estabilidad entre entrenamiento y prueba. Para regresion, la comparacion se baso principalmente en RMSE, MAE y R2.
+
+El diagnostico de ajuste muestra si los modelos estan aprendiendo patrones generalizables o si dependen demasiado del conjunto de entrenamiento. Una diferencia amplia entre entrenamiento y prueba sugiere sobreajuste, mientras que resultados bajos en ambos conjuntos pueden indicar desajuste. Este analisis es fundamental para evitar recomendar un modelo que funcione bien en datos historicos pero falle al evaluar nuevas propiedades.
+
+Con base en las metricas consolidadas, el modelo recomendado debe ser aquel que logre el mejor equilibrio entre desempeno predictivo, estabilidad y costo computacional. Esta decision permite que SmartStay Advisors utilice modelos de mineria de datos no solo para estimar precios, sino tambien para entender mejor los factores que influyen en la ocupacion, rentabilidad y posicionamiento de las propiedades.
